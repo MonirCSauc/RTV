@@ -19,12 +19,14 @@ from util.gpu_check import report_devices
 
 
 class FrameProcessor:
-    def __init__(self, garment_name_list, ckpt_dir=None):
+    def __init__(self, garment_name_list, ckpt_dir=None, dp_score=0.5):
         self.smpl_regressor = SMPL_Regressor(use_bev=True)
         self.viton_model = None
         self.compositor = None
         self.ckpt_dir = ckpt_dir if ckpt_dir is not None else './rtv_ckpts'
-        self.densepose_extractor = DensePoseExtractor()
+        # detectron2 keeps detections down to a 0.05 score by default, so posters, mannequins and reflections compete
+        # for "the person"; dp_score drops weak detections
+        self.densepose_extractor = DensePoseExtractor(opts=['MODEL.ROI_HEADS.SCORE_THRESH_TEST', dp_score])
         self.upper_body = UpperBodySMPL()
         self.garment_name_list = garment_name_list
         self.viton_model_list = [None for i in range(len(self.garment_name_list))]
@@ -95,6 +97,7 @@ class FrameProcessor:
         self.last_debug = None
         self._pristine = input_frame.copy() if self.debug else None
         if self.viton_model is None:
+            ft.note(outcome='no_garment')
             return input_frame
 
         resolution = 512
@@ -104,12 +107,11 @@ class FrameProcessor:
             smpl_data = self.smpl_regressor.forward(raw_image, True, size=1.45,
                                                     roi_img_size=resolution)
         self._check_untouched(raw_image, 'bev')
-        if len(smpl_data) < 3:
+        if len(smpl_data) < 3 or smpl_data[0] is None:
+            ft.note(outcome='no_person', n_people_bev=0)
             return input_frame
         smpl_param, trans2roi, inv_trans2roi = smpl_data
-
-        if smpl_param is None:
-            return input_frame
+        ft.note(n_people_bev=SMPL_Regressor.n_people(smpl_param))
         trans2roi, inv_trans2roi = self.roi_smoothing(trans2roi)
         vertices = SMPL_Regressor.get_raw_verts(smpl_param)
         vertices = torch.from_numpy(vertices).unsqueeze(0)
@@ -124,9 +126,14 @@ class FrameProcessor:
 
         self._check_untouched(raw_image, 'vm_render')
         with ft.stage('densepose'):
-            raw_IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False)
+            # DensePose must describe the same person as BEV: pick its detection by BEV's 2D joints
+            raw_IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False,
+                                                       target_joints=SMPL_Regressor.chosen_joints(smpl_param))
         self._check_untouched(raw_image, 'densepose')
+        selection = self.densepose_extractor.last_selection
+        ft.note(n_people_dp=selection['n_people'], dp_joint_fraction=selection['joint_fraction'])
         if raw_IUV is None:
+            ft.note(outcome='dp_mismatch' if selection['n_people'] else 'dp_no_person')
             return input_frame
         with ft.stage('inputs'):
             dpi_img = IUV2SDP(raw_IUV)
@@ -141,6 +148,7 @@ class FrameProcessor:
             dp_tensor = util.im2tensor(roi_dpi_img) * 2.0 - 1.0
         with self.lock:
             if self.viton_model is None:
+                ft.note(outcome='no_garment')
                 return input_frame
             compositor = self.compositor
             with ft.stage('generator'), torch.no_grad():
@@ -160,6 +168,7 @@ class FrameProcessor:
         with ft.stage('composite'):
             occlusion_mask = IUV2HandHeadMask(raw_IUV)
             composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
+        ft.note(outcome='ok')
         if self.debug:
             to_roi = lambda img, flags=cv2.INTER_LINEAR: cv2.warpAffine(img, trans2roi, (resolution, resolution), flags=flags)
             self.last_debug = {'input': to_roi(raw_image), 'vm': roi_vm, 'sdp': roi_dpi_img,

@@ -30,7 +30,8 @@ ROTATIONS = {'cw': cv2.ROTATE_90_CLOCKWISE, 'ccw': cv2.ROTATE_90_COUNTERCLOCKWIS
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage, object)  # (image, FrameTiming)
 
-    def __init__(self,garment_id_list,camera=None,ckpt_dir=None,rotate='cw',latency_csv=None,marker=False,debug=False):
+    def __init__(self,garment_id_list,camera=None,ckpt_dir=None,rotate='cw',latency_csv=None,marker=False,debug=False,
+                 processor_options=None):
         super().__init__()
         self.cap = self.get_camera(camera)
         if not self.cap.isOpened():
@@ -42,7 +43,7 @@ class VitonThread(QThread):
         # timing is off unless --latency_csv is given; then every stage syncs CUDA so its GPU time is billed correctly
         self.lat = LatencyRecorder(enabled=latency_csv is not None, sync_cuda=True, csv_path=latency_csv)
         self.marker = marker
-        self.frame_processor = FrameProcessor(garment_id_list, ckpt_dir=ckpt_dir)
+        self.frame_processor = FrameProcessor(garment_id_list, ckpt_dir=ckpt_dir, **(processor_options or {}))
         self.frame_processor.debug = debug
         self.save_next = False  # set by the S key: save the next displayed frame to ./debug_frames/
         # keep only the newest camera frame, so slow processing never shows stale (laggy, smeared) frames
@@ -163,7 +164,7 @@ class VitonThread(QThread):
 
 class CameraApp(QMainWindow):
     def __init__(self, garment_name_list, camera=None, ckpt_dir=None, rotate='cw', latency_csv=None, marker=False,
-                 debug=False):
+                 debug=False, processor_options=None):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -235,7 +236,8 @@ class CameraApp(QMainWindow):
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
-        self.viton_thread = VitonThread(garment_name_list, camera, ckpt_dir, rotate, latency_csv, marker, debug)
+        self.viton_thread = VitonThread(garment_name_list, camera, ckpt_dir, rotate, latency_csv, marker, debug,
+                                        processor_options)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -318,10 +320,13 @@ if __name__ == "__main__":
                         help='draw the frame id and capture time into the output, for filming the mirror')
     parser.add_argument('--debug', action='store_true',
                         help='show what the garment network sees (VM, SDP, alpha) next to the output; S saves a frame')
+    parser.add_argument('--dp_score', type=float, default=0.5,
+                        help='minimum DensePose detection score; weaker detections (posters, mannequins) are ignored')
     args, qt_args = parser.parse_known_args()
+    processor_options = {'dp_score': args.dp_score}
     require_cuda()
     app = QApplication(sys.argv[:1] + qt_args)
     window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate,
-                       args.latency_csv, args.latency_marker, args.debug)
+                       args.latency_csv, args.latency_marker, args.debug, processor_options)
     window.show()
     sys.exit(app.exec_())

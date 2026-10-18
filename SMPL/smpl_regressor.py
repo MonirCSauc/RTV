@@ -187,6 +187,16 @@ class SMPL_Regressor:
         else:
             return outputs
 
+    @staticmethod
+    def chosen_joints(outputs, n_joints=24):
+        # 2D image positions of the SMPL body joints of the person every other step uses (nearest by depth)
+        depth_order = torch.sort(outputs['cam_trans'][:, 2].cpu(), descending=False).indices.numpy()
+        return outputs['pj2d_org'][depth_order][0][:n_joints].cpu().numpy()
+
+    @staticmethod
+    def n_people(outputs):
+        return int(outputs['cam_trans'].shape[0])
+
     def get_face_region(self, outputs):
         cam_trans = outputs['cam_trans']
         depth_order = torch.sort(cam_trans[:, 2].cpu(), descending=False).indices.numpy()

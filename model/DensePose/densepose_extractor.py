@@ -75,6 +75,7 @@ class DensePoseExtractor(DumpAction):
         self.parser = argparse.ArgumentParser()
 
         self.dp_model = DumpAction()
+        self.last_selection = {'n_people': 0, 'joint_fraction': float('nan')}
         #self.dp_model.add_arguments(self.parser)
         self.args = self.parser.parse_args([])
         opts = list(opts or [])  # detectron2 config overrides: ['KEY', value, ...]
@@ -191,7 +192,34 @@ class DensePoseExtractor(DumpAction):
 
 
 
-    def get_IUV(self,img, isRGB=False):
+    @staticmethod
+    def select_person(boxes, target_joints, min_joint_fraction=0.5):
+        """Pick the detection that contains the most of the target person's 2D joints.
+
+        boxes: (N, 4) xyxy; target_joints: (J, 2) image coordinates of the person BEV chose. Joints lie inside the
+        body, so counting them is more robust than box IoU (a joint box is always smaller than a person box).
+        Returns (index or None when too few joints fall in any box, fraction of joints inside the chosen box).
+        """
+        boxes = np.asarray(boxes, np.float32)
+        joints = np.asarray(target_joints, np.float32)
+        inside = ((joints[None, :, 0] >= boxes[:, None, 0]) & (joints[None, :, 0] <= boxes[:, None, 2]) &
+                  (joints[None, :, 1] >= boxes[:, None, 1]) & (joints[None, :, 1] <= boxes[:, None, 3]))
+        fraction = inside.mean(1)
+        # ties (e.g. a frame-sized poster box also contains every joint): prefer the box that fits the joints best
+        jx0, jy0 = joints.min(0)
+        jx1, jy1 = joints.max(0)
+        iw = np.clip(np.minimum(boxes[:, 2], jx1) - np.maximum(boxes[:, 0], jx0), 0, None)
+        ih = np.clip(np.minimum(boxes[:, 3], jy1) - np.maximum(boxes[:, 1], jy0), 0, None)
+        areas = (boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])
+        fit = iw * ih / (areas + (jx1 - jx0) * (jy1 - jy0) - iw * ih + 1e-6)
+        best = int(np.lexsort((-fit, -fraction))[0])  # most joints inside, then the tightest fit
+        if fraction[best] < min_joint_fraction:
+            return None, float(fraction[best])
+        return best, float(fraction[best])
+
+    def get_IUV(self,img, isRGB=False, target_joints=None):
+        # target_joints: 2D joints of the person BEV chose; the DensePose instance must be the same person.
+        # Without them the largest detection is used (the original behaviour).
         if isRGB:
             img = img[:,:,[2,1,0]] # convert to BGR
         with torch.no_grad():
@@ -209,9 +237,16 @@ class DensePoseExtractor(DumpAction):
                     extractor = DensePoseOutputsExtractor()
                 result["pred_densepose"] = extractor(outputs)[0]
 
+        self.last_selection = {'n_people': len(result['pred_boxes_XYXY']), 'joint_fraction': float('nan')}
         if len(result['pred_boxes_XYXY'])==0:
             return None
-        max_id = self.get_max_index(result['pred_boxes_XYXY'])
+        if target_joints is None:
+            max_id = self.get_max_index(result['pred_boxes_XYXY'])
+        else:
+            max_id, fraction = self.select_person(result['pred_boxes_XYXY'].numpy(), target_joints)
+            self.last_selection['joint_fraction'] = fraction
+            if max_id is None:
+                return None  # DensePose did not find the person BEV is tracking
         #print("Box:",result['pred_boxes_XYXY'][0])
         box_list = (result['pred_boxes_XYXY'][max_id]).tolist()
         box_list = [int(round(coord)) for coord in box_list]

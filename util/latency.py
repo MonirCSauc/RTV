@@ -27,8 +27,11 @@ except Exception:  # torch missing or broken: timing still works, without GPU sy
 # fixed CSV columns, so frames that skip stages (no garment selected, no person found) still line up
 STAGES = ['prep', 'bev', 'vm_render', 'densepose', 'inputs', 'generator', 'warp_back', 'composite', 'qimage']
 MARKS = ['dequeued', 'emit', 'gui_recv', 'shown']
+# per-frame facts logged alongside the timings (see FrameProcessor): people seen by BEV and by DensePose, the share
+# of the BEV person's joints inside the chosen DensePose box (low = the two models disagree), and the frame outcome
+INFO = ['n_people_bev', 'n_people_dp', 'dp_joint_fraction', 'outcome']
 COLUMNS = (['frame_id', 't_cap'] + ['stage_%s_ms' % s for s in STAGES] + ['at_%s_ms' % m for m in MARKS]
-           + ['cap_to_shown_ms'])
+           + ['cap_to_shown_ms'] + INFO)
 
 
 def now():
@@ -42,13 +45,14 @@ def cuda_sync():
 
 class FrameTiming:
     """Timing record that travels with one camera frame through the pipeline."""
-    __slots__ = ('frame_id', 't_cap', 'stages', 'marks', '_sync', '_enabled')
+    __slots__ = ('frame_id', 't_cap', 'stages', 'marks', 'info', '_sync', '_enabled')
 
     def __init__(self, frame_id, t_cap, sync_cuda, enabled):
         self.frame_id = frame_id
         self.t_cap = t_cap
         self.stages = {}   # name -> duration (s); repeated names accumulate
         self.marks = {}    # name -> absolute perf_counter time (s)
+        self.info = {}     # name -> value, see INFO
         self._sync = sync_cuda
         self._enabled = enabled
 
@@ -66,6 +70,10 @@ class FrameTiming:
             if self._sync:
                 cuda_sync()      # include this stage's queued GPU work
             self.stages[name] = self.stages.get(name, 0.0) + (now() - t0)
+
+    def note(self, **values):
+        if self._enabled:
+            self.info.update(values)
 
     def mark(self, name, t=None):
         if self._enabled:
@@ -123,6 +131,7 @@ class LatencyRecorder:
         row.update({'stage_' + k + '_ms': v * 1e3 for k, v in ft.stages.items()})
         row.update({'at_' + k + '_ms': (t - ft.t_cap) * 1e3 for k, t in ft.marks.items()})
         row['cap_to_shown_ms'] = (ft.marks['shown'] - ft.t_cap) * 1e3
+        row.update(ft.info)
         with self.lock:
             if self._closed:  # a frame still in flight while the app shuts down
                 return
@@ -157,6 +166,11 @@ class LatencyRecorder:
             lines.append('  displayed fps %.1f; frames captured %d, shown %d (dropped %.0f%%)' % (
                 (len(rows) - 1) / span, self.n_captured, self.n_finished,
                 100.0 * (1 - self.n_finished / max(self.n_captured, 1))))
+        outcomes = [r['outcome'] for r in rows if 'outcome' in r]
+        if outcomes:
+            names, counts = np.unique(outcomes, return_counts=True)
+            lines.append('  frame outcomes: ' + ', '.join('%s %d%%' % (n, round(100.0 * c / len(outcomes)))
+                                                          for n, c in zip(names, counts)))
         return '\n'.join(lines)
 
     def close(self):
