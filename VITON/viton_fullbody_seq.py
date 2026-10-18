@@ -38,7 +38,19 @@ class FullBodySeqFrameProcessor:
         self.temporal_smoothing = TemporalSmoothing(c=0.9)
         self.roi_height = 576
         self.roi_width = int(self.roi_height * 0.75)
-        self.densepose_extractor = DensePoseExtractor()
+        self.densepose_extractor = DensePoseExtractor(opts=['MODEL.ROI_HEADS.SCORE_THRESH_TEST', 0.5])
+        self.misses = 0
+
+    # after this many frames without the person, the next one is a new customer: the ConvLSTM memory and the crop
+    # smoothing must not carry over from the previous person
+    LOST_AFTER = 15
+
+    def _miss(self, raw_image):
+        self.misses += 1
+        if self.misses == self.LOST_AFTER:
+            self.temporal_smoothing.reset()
+            self.viton_model.reset()
+        return raw_image
 
     def __call__(self, roi_vm, roi_ssdp):
         vm_tensor = util.im2tensor(roi_vm) * 2.0 - 1.0
@@ -58,7 +70,7 @@ class FullBodySeqFrameProcessor:
         smpl_param = self.smpl_regressor.forward(raw_image, False)  # 1.38
         # print(list(smpl_param.keys()))
         if smpl_param is None:
-            return raw_image
+            return self._miss(raw_image)
         trans2roi, inv_trans = self.smpl_regressor.get_fullbody_trans2roi(smpl_param, s=1.4, new_h=self.roi_height,
                                                                           new_w=self.roi_width)
         trans2roi, inv_trans = self.temporal_smoothing(trans2roi)
@@ -73,9 +85,12 @@ class FullBodySeqFrameProcessor:
                                 borderMode=cv2.BORDER_CONSTANT,
                                 borderValue=(0, 0, 0))
 
-        IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False)
+        # DensePose must describe the same person as BEV; an all-black body map (the old fallback) is not a person
+        IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False,
+                                               target_joints=SMPL_Regressor.chosen_joints(smpl_param))
         if IUV is None:
-            IUV = np.zeros_like(raw_image)
+            return self._miss(raw_image)
+        self.misses = 0
 
         ssdp = IUV2SSDP(IUV)
         roi_ssdp = cv2.warpAffine(ssdp, trans2roi, (self.roi_width, self.roi_height), flags=cv2.INTER_NEAREST,

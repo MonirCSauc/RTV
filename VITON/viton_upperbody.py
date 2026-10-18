@@ -41,6 +41,12 @@ class FrameProcessor:
         # the ROI only frames the network input (output is warped back with its inverse), so smoothing it
         # removes jitter from noisy joints without misaligning the garment
         self.roi_smoothing = TemporalSmoothing(c=0.6)
+        # Misses (no person, or DensePose disagrees with BEV): show the last garment for HOLD frames, fade it out over
+        # FADE frames, then treat the person as gone. A newly found person or garment fades in over FADE_IN frames.
+        self.misses = 0
+        self.last_good = None      # (garment, alpha, occlusion, compositor) of the last successful frame
+        self.visibility = 0.0      # overall garment opacity, 0..1
+        self.prev_trans = None     # unsmoothed crop transform of the previous frame, to detect a different person
         self.lock = threading.Lock()
         self.debug = False       # when True, keep this frame's network inputs/outputs in self.last_debug
         self.last_debug = None
@@ -80,6 +86,8 @@ class FrameProcessor:
             print("Finished; garment network on", next(new_model.parameters()).device if new_model is not None else None)
             self.viton_model = new_model
             self.compositor = self.compositor_list[id] if garment_id >= 0 else None
+            self.last_good = None  # never hold or fade the previous garment's image
+            self.visibility = 0.0
             if old_model is not None and old_model is not new_model:
                 old_model.to('cpu')
                 torch.cuda.empty_cache()
@@ -88,6 +96,39 @@ class FrameProcessor:
         t = Thread(target=self.switch_to_target_garment, args=(target_id,))
         t.daemon = True
         t.start()
+
+    HOLD, FADE, FADE_IN = 3, 12, 4
+    JUMP = 0.25  # crop centre moving more than this share of the crop side, or its scale changing this much
+
+    def _miss(self, input_frame, ft, outcome):
+        # this frame produced no garment: hold, then fade, the last one instead of blinking
+        ft.note(outcome=outcome)
+        self.misses += 1
+        if self.last_good is not None and self.misses <= self.HOLD + self.FADE:
+            fade = 1.0 if self.misses <= self.HOLD else 1.0 - (self.misses - self.HOLD) / float(self.FADE)
+            garment, alpha, occlusion, compositor = self.last_good
+            return compositor(input_frame, garment, alpha, occlusion, global_alpha=self.visibility * fade)
+        if self.last_good is not None or self.misses == self.HOLD + self.FADE + 1:
+            self._forget_person()
+        return input_frame
+
+    def _forget_person(self):
+        self.last_good = None
+        self.visibility = 0.0
+        self.prev_trans = None
+        self.roi_smoothing.reset()
+
+    def _person_changed(self, trans2roi, resolution):
+        # a big jump of the crop between consecutive frames means a different person (or a lost track)
+        prev, self.prev_trans = self.prev_trans, trans2roi
+        if prev is None:
+            return False
+        scale, prev_scale = np.linalg.norm(trans2roi[0, :2]), np.linalg.norm(prev[0, :2])
+        centre = cv2.invertAffineTransform(trans2roi) @ np.array([resolution / 2.0, resolution / 2.0, 1.0])
+        prev_centre = cv2.invertAffineTransform(prev) @ np.array([resolution / 2.0, resolution / 2.0, 1.0])
+        side = resolution / scale  # crop side in camera pixels
+        return (np.linalg.norm(centre - prev_centre) > self.JUMP * side or
+                abs(scale / prev_scale - 1.0) > self.JUMP)
 
     def _check_untouched(self, raw_image, stage):
         # debug only: the camera frame must reach the compositor unchanged; report the stage that draws into it
@@ -103,6 +144,7 @@ class FrameProcessor:
         self._pristine = input_frame.copy() if self.debug else None
         if self.viton_model is None:
             ft.note(outcome='no_garment')
+            self._forget_person()
             return input_frame
 
         resolution = 512
@@ -113,10 +155,13 @@ class FrameProcessor:
                                                     roi_img_size=resolution)
         self._check_untouched(raw_image, 'bev')
         if len(smpl_data) < 3 or smpl_data[0] is None:
-            ft.note(outcome='no_person', n_people_bev=0)
-            return input_frame
+            ft.note(n_people_bev=0)
+            return self._miss(input_frame, ft, 'no_person')
         smpl_param, trans2roi, inv_trans2roi = smpl_data
         ft.note(n_people_bev=SMPL_Regressor.n_people(smpl_param))
+        if self._person_changed(trans2roi, resolution):
+            self._forget_person()   # snap the crop to the new person and fade the garment in again
+            self.prev_trans = trans2roi
         trans2roi, inv_trans2roi = self.roi_smoothing(trans2roi)
         vertices = SMPL_Regressor.get_raw_verts(smpl_param)
         vertices = torch.from_numpy(vertices).unsqueeze(0)
@@ -138,8 +183,7 @@ class FrameProcessor:
         selection = self.densepose_extractor.last_selection
         ft.note(n_people_dp=selection['n_people'], dp_joint_fraction=selection['joint_fraction'])
         if raw_IUV is None:
-            ft.note(outcome='dp_mismatch' if selection['n_people'] else 'dp_no_person')
-            return input_frame
+            return self._miss(input_frame, ft, 'dp_mismatch' if selection['n_people'] else 'dp_no_person')
         with ft.stage('inputs'):
             dpi_img = IUV2SDP(raw_IUV)
             roi_dpi_img = cv2.warpAffine(dpi_img, trans2roi, (resolution, resolution), flags=cv2.INTER_LINEAR,
@@ -172,7 +216,11 @@ class FrameProcessor:
         self._check_untouched(raw_image, 'inputs/generator/warp_back')
         with ft.stage('composite'):
             occlusion_mask = IUV2HandHeadMask(raw_IUV)
-            composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
+            self.misses = 0
+            self.visibility = min(1.0, self.visibility + 1.0 / self.FADE_IN)
+            self.last_good = (raw_target_img, raw_alpha, occlusion_mask, compositor)
+            composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask,
+                                      global_alpha=self.visibility)
         ft.note(outcome='ok')
         if self.debug:
             to_roi = lambda img, flags=cv2.INTER_LINEAR: cv2.warpAffine(img, trans2roi, (resolution, resolution), flags=flags)

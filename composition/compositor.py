@@ -19,15 +19,16 @@ class GarmentCompositor:
         self.alpha_low = alpha_low
         self.alpha_high = alpha_high
 
-    def __call__(self, frame, garment, alpha, occlusion_mask=None):
+    def __call__(self, frame, garment, alpha, occlusion_mask=None, global_alpha=1.0):
         # frame, garment: HxWx3 uint8 (same space); alpha: HxW float [0,1] or uint8 [0,255]
+        # global_alpha: overall garment opacity, for fading in and out when the person is found or lost
         if alpha.dtype == np.uint8:
             alpha = alpha.astype(np.float32) / 255.0
         alpha = np.clip(alpha.astype(np.float32), 0.0, 1.0)
         garment = garment.astype(np.float32)
         if self.premultiplied:
             garment = unpremultiply(garment, alpha)
-        a = np.clip((alpha - self.alpha_low) / (self.alpha_high - self.alpha_low), 0.0, 1.0)
+        a = np.clip((alpha - self.alpha_low) / (self.alpha_high - self.alpha_low), 0.0, 1.0) * global_alpha
         if occlusion_mask is not None:
             # hands and face stay in front; the soft edge sits on their boundary
             occ = cv2.GaussianBlur(occlusion_mask.astype(np.float32) / 255.0, (0, 0), sigmaX=1.5)

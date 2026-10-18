@@ -15,6 +15,10 @@ class TemporalSmoothing:
         self.past_trans=None
         self.c=c
 
+    def reset(self):
+        # forget the history, e.g. when a different person steps in, so the next crop snaps instead of sliding
+        self.past_trans = None
+
     def __call__(self, trans):
         if self.past_trans is None:
             self.past_trans = trans.copy()
