@@ -19,7 +19,7 @@ from VITON.viton_upperbody import FrameProcessor
 from util.camera_util import list_available_cameras
 from util.latency import LatencyRecorder, now, draw_latency_marker
 from util.gpu_check import require_cuda
-from util.debug_view import compose_debug_panel
+from util.debug_view import compose_debug_panel, save_debug
 
 
 DEFAULT_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
@@ -125,10 +125,9 @@ class VitonThread(QThread):
                 frame = compose_debug_panel(frame, self.frame_processor.last_debug)
             if self.save_next:
                 self.save_next = False
-                os.makedirs('debug_frames', exist_ok=True)
                 path = os.path.join('debug_frames', time.strftime('%Y%m%d_%H%M%S') + '_%d.png' % ft.frame_id)
-                cv2.imwrite(path, frame)
-                print('saved', path)
+                save_debug(path, frame, self.frame_processor.last_debug)
+                print('saved', path, '(+ .npz with the full-frame arrays)' if self.frame_processor.last_debug else '')
             with ft.stage('qimage'):
                 if self.marker:
                     frame = draw_latency_marker(frame.copy(), ft.frame_id, t_cap)

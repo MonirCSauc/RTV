@@ -48,6 +48,7 @@ class FrameProcessor:
         self.sdp_lut = None
         self.debug = False       # when True, keep this frame's network inputs/outputs in self.last_debug
         self.last_debug = None
+        self._pristine = None
         print('Model devices:')
         report_devices({'BEV': self.smpl_regressor.regressor_model,
                         'DensePose': self.densepose_extractor.predictor.model})
@@ -121,10 +122,19 @@ class FrameProcessor:
     def reset_background(self):
         self.garment_remover.reset_background()
 
+    def _check_untouched(self, raw_image, stage):
+        # debug only: the camera frame must reach the compositor unchanged; report the stage that draws into it
+        if self._pristine is not None and not np.array_equal(self._pristine, raw_image):
+            changed = np.any(self._pristine != raw_image, axis=2)
+            print('WARNING: the camera frame was modified in place during stage "%s" (%d pixels changed)'
+                  % (stage, int(changed.sum())))
+            self._pristine = raw_image.copy()
+
     @torch.no_grad()
     def __call__(self, input_frame, ft=NULL_TIMING):
         # ft: per-frame timing record (util/latency.py); stages are no-ops unless latency logging is on
         self.last_debug = None
+        self._pristine = input_frame.copy() if self.debug else None
         if self.viton_model is None:
             return input_frame
 
@@ -135,8 +145,10 @@ class FrameProcessor:
         with ft.stage('bev'):
             smpl_data = self.smpl_regressor.forward(raw_image, True, size=1.45,
                                                     roi_img_size=resolution)
+        self._check_untouched(raw_image, 'bev')
         with ft.stage('densepose'):
             raw_IUV = self.densepose_extractor.get_IUV_tensor(raw_image)
+        self._check_untouched(raw_image, 'densepose')
         smpl_param = smpl_data[0] if len(smpl_data) >= 3 else None
         if smpl_param is None:
             self.roi_smoothing.past_trans = None
@@ -168,6 +180,7 @@ class FrameProcessor:
             # BGR colour in [0, 255] plus coverage in [0, 1], warped back onto the full frame
             roi_target = torch.cat([(target_tensor[:, [2, 1, 0]] + 1.0) * 127.5, target_tensor[:, 3:4]], 1)
             raw_target = self._sample(roi_target.clamp(0.0, 255.0), trans2roi, height, width)[0]
+        self._check_untouched(raw_image, 'vm_render/inputs/generator/warp_back')
         with ft.stage('composite'):
             garment, alpha = composite_inputs(compositor, raw_target[:3].permute(1, 2, 0), raw_target[3])
             # keep hands and face in front of the garment
@@ -181,10 +194,19 @@ class FrameProcessor:
             composed = composed.clamp(0.0, 255.0).to(torch.uint8).cpu().numpy()
         if self.debug:
             to_img = lambda t: t[0].permute(1, 2, 0).mul(255.0).clamp(0.0, 255.0).to(torch.uint8).cpu().numpy()
-            roi_occlusion = self._sample(occlusion[None, None], inv_trans2roi, resolution, resolution)
-            self.last_debug = {'vm': to_img(vm_tensor[:, [2, 1, 0]] * 0.5 + 0.5), 'sdp': to_img(dp_tensor * 0.5 + 0.5),
+            to_roi = lambda t: to_img(self._sample(t, inv_trans2roi, resolution, resolution))
+            frame_t = torch.from_numpy(raw_image).cuda().permute(2, 0, 1)[None].float() / 255.0
+            occlusion_u8 = occlusion.mul(255.0).to(torch.uint8).cpu().numpy()
+            self.last_debug = {'input': to_roi(frame_t),
+                               'vm': to_img(vm_tensor[:, [2, 1, 0]] * 0.5 + 0.5), 'sdp': to_img(dp_tensor * 0.5 + 0.5),
+                               'garment': to_img(roi_target[:, :3] / 255.0),
                                'alpha': target_tensor[0, 3].clamp(0.0, 1.0).cpu().numpy(),
-                               'occlusion': to_img(roi_occlusion)[..., 0]}
+                               'occlusion': to_roi(occlusion[None, None])[..., 0],
+                               # full-frame arrays, saved with S for offline analysis
+                               'raw': {'frame': raw_image,
+                                       'garment': raw_target[:3].permute(1, 2, 0).to(torch.uint8).cpu().numpy(),
+                                       'alpha': raw_target[3].clamp(0.0, 1.0).cpu().numpy(),
+                                       'occlusion': occlusion_u8, 'iuv': raw_IUV.cpu().numpy(), 'output': composed}}
         return composed
 
 
