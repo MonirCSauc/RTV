@@ -1,2 +1,10 @@
 __pycache__/
 *.pyc
+# large or local-only data: never committed, never touched by git clean/stash
+rtv_ckpts/
+checkpoints/
+PerGarmentDatasets/
+debug_frames/
+*.csv
+*.npz
+*.mp4
