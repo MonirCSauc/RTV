@@ -1,5 +1,6 @@
 import sys
 import os
+import argparse
 
 #sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 import cv2
@@ -19,9 +20,9 @@ from util.camera_util import list_available_cameras
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage)
 
-    def __init__(self,garment_id_list):
+    def __init__(self,garment_id_list,camera=None):
         super().__init__()
-        self.cap = self.get_camera()
+        self.cap = self.get_camera(camera)
         if not self.cap.isOpened():
             print("Failed to open the selected camera.")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -32,7 +33,10 @@ class VitonThread(QThread):
         print(id)
         self.frame_processor.set_target_garment(id)
 
-    def get_camera(self):
+    def get_camera(self, camera=None):
+        if camera is not None:
+            # a device index (e.g. 2) or a stream URL (e.g. DroidCam's http://<phone-ip>:4747/video)
+            return cv2.VideoCapture(int(camera) if camera.isdigit() else camera)
         cap = cv2.VideoCapture(1)
 
         if not cap.isOpened():
@@ -63,7 +67,7 @@ class VitonThread(QThread):
         self.cap.release()
 
 class CameraApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, camera=None):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -142,7 +146,7 @@ class CameraApp(QMainWindow):
         for i in range(len(garment_name_list)):
             garment_name_list[i] = garment_name_list[i]+'_vmsdp2ta'
 
-        self.viton_thread = VitonThread(garment_name_list)
+        self.viton_thread = VitonThread(garment_name_list, camera)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -201,7 +205,11 @@ class CameraApp(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = CameraApp()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--camera', default=None,
+                        help='camera index or stream URL; defaults to trying index 1, then 0')
+    args, qt_args = parser.parse_known_args()
+    app = QApplication(sys.argv[:1] + qt_args)
+    window = CameraApp(args.camera)
     window.show()
     sys.exit(app.exec_())
