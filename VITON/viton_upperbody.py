@@ -19,8 +19,13 @@ from util.gpu_check import report_devices
 
 
 class FrameProcessor:
-    def __init__(self, garment_name_list, ckpt_dir=None, dp_score=0.5):
-        self.smpl_regressor = SMPL_Regressor(use_bev=True)
+    # --body_shape: 'train' zeroes the shape parameters exactly as the training data did (default, matches the
+    # released checkpoints); 'zero' zeroes all of them (paper); 'estimated' keeps BEV's per-person estimate, which
+    # a coat inflates
+    BODY_SHAPES = {'train': True, 'zero': 'all', 'estimated': False}
+
+    def __init__(self, garment_name_list, ckpt_dir=None, dp_score=0.5, body_shape='train'):
+        self.smpl_regressor = SMPL_Regressor(use_bev=True, fix_body=self.BODY_SHAPES[body_shape])
         self.viton_model = None
         self.compositor = None
         self.ckpt_dir = ckpt_dir if ckpt_dir is not None else './rtv_ckpts'

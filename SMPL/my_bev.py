@@ -35,7 +35,10 @@ class MyBEV(BEV):
             outputs.update({'cam_trans': denormalize_cam_params_to_trans(outputs['cam'])})
 
         #print(outputs['smpl_betas'].dtype, outputs['smpl_betas'].shape)#torch.Size([1, 11]
-        if self.fix_body:
+        if self.fix_body == 'all':
+            outputs['smpl_betas'][:] = 0  # every shape parameter (paper: beta = 0)
+        elif self.fix_body:
+            # what the per-garment training data used (DatasetGeneration): shape 0-3 and the age/kid blend 10
             outputs['smpl_betas'][:,10]=0
             outputs['smpl_betas'][:, 0:4] = 0
         if self.settings.calc_smpl:

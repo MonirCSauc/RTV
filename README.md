@@ -66,6 +66,8 @@ Useful options:
 
 - `--dp_score <0..1>`: minimum DensePose detection score (default 0.5). DensePose now always describes the same person as the 3D body (BEV): its detection is chosen by BEV's 2D joints, and a frame where they disagree is skipped instead of mixing two people. The latency CSV records per frame how many people each model saw, how well they agreed (`dp_joint_fraction`), and the frame `outcome` (`ok`, `no_person`, `dp_mismatch`, `dp_no_person`, `no_garment`).
 
+- `--body_shape {train,zero,estimated}`: body shape of the rendered 3D body. `train` (default) zeroes the shape parameters exactly as the training data did; previously the live demo used each person's estimated shape, which training never saw and which a coat inflates. `zero` and `estimated` are there for experiments.
+
 At start-up the demo checks that PyTorch can see a CUDA GPU and prints where BEV, DensePose and each garment network run (they should all show `cuda:0`).
 
 ## BibTeX
