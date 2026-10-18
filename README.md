@@ -48,6 +48,10 @@ Please make sure that there is a webcam connected to your PC before running the 
 ```
 python rtl_demo.py
 ```
+Useful options:
+- `--camera <index or URL>`: pick the camera, e.g. `--camera 2` or a phone stream such as `--camera http://<phone-ip>:4747/video` (DroidCam).
+- `--rotate {cw,ccw,180,none}`: rotation applied to camera frames (default `cw`, for a camera mounted sideways in portrait).
+- `--garments <names>` and `--ckpt_dir <dir>`: comma-separated checkpoint names to offer, and the folder holding them (default `./rtv_ckpts`).
 
 ## BibTeX
 ```text

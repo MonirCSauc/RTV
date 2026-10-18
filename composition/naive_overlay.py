@@ -10,20 +10,16 @@ def naive_overlay(raw_img, raw_target):
     composed[condition]=raw_target[condition]
     return composed
 
-def naive_overlay_alpha(raw_img, raw_target, raw_alpha, occlusion_mask=None):
+def naive_overlay_alpha(raw_img, raw_target, raw_alpha):
     raw_alpha=(raw_alpha>128).astype(np.uint8)*255
     raw_alpha=erode(raw_alpha)
     raw_alpha=raw_alpha.astype(np.float32)/255.0
-    if occlusion_mask is not None:
-        # keep occluders (hands, face) in front of the garment, with a feathered edge
-        occ=cv2.GaussianBlur(occlusion_mask.astype(np.float32)/255.0,(0,0),sigmaX=2)
-        raw_alpha=raw_alpha*(1.0-occ)
     raw_alpha=np.expand_dims(raw_alpha,2)
     raw_alpha=raw_alpha[:,:,[0,0,0]]
     raw_img=raw_img.astype(np.float32)
     raw_target=raw_target.astype(np.float32)
     composed=raw_target*raw_alpha+raw_img*(1.0-raw_alpha)
-    composed=np.clip(np.round(composed),0,255).astype(np.uint8)
+    composed=composed.astype(np.uint8)
     return composed
 
 def erode(np_mask):

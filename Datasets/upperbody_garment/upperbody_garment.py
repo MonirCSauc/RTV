@@ -9,6 +9,7 @@ import torch.utils.data as data
 from PIL import Image
 from util.densepose_util import IUV2UpperBodyImg, IUV2TorsoLeg, IUV2Img,IUV2SDP,IUV2SSDP
 from util.cv2_trans_util import get_inverse_trans
+from util.matte_util import fill_from_interior
 import cv2
 import json
 
@@ -73,6 +74,9 @@ class UpperBodyGarment(data.Dataset):
                                     flags=cv2.INTER_LINEAR,
                                     borderMode=cv2.BORDER_CONSTANT,
                                     borderValue=(0))
+        # train on straight colour: edge pixels blended with the black cut-out background are replaced,
+        # otherwise the network learns to draw a dark outline around the garment
+        roi_garment_img = fill_from_interior(roi_garment_img, roi_mask_img)
         if self.transform is not None:
             roi_garment_img = self.transform(PIL.Image.fromarray(roi_garment_img))
             roi_vm_img = self.transform(PIL.Image.fromarray(roi_vm_img))
@@ -94,7 +98,7 @@ class UpperBodyGarment(data.Dataset):
         image_list = []
         filelist = os.listdir(self.img_dir)
         for item in filelist:
-            if item.endswith('_garment.jpg'):
+            if item.endswith('_garment.png') or item.endswith('_garment.jpg'):  # .jpg: datasets made before PNG
                 image_list.append(os.path.join(self.img_dir, item))
         image_list.sort()
         return image_list

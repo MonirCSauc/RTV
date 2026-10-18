@@ -19,10 +19,15 @@ from VITON.viton_upperbody import FrameProcessor
 from util.camera_util import list_available_cameras
 
 
+DEFAULT_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
+                    'jin_17_vmsdp2ta', 'jin_18_vmsdp2ta', 'jin_22_vmsdp2ta']
+ROTATIONS = {'cw': cv2.ROTATE_90_CLOCKWISE, 'ccw': cv2.ROTATE_90_COUNTERCLOCKWISE, '180': cv2.ROTATE_180, 'none': None}
+
+
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage)
 
-    def __init__(self,garment_id_list,camera=None):
+    def __init__(self,garment_id_list,camera=None,ckpt_dir=None,rotate='cw'):
         super().__init__()
         self.cap = self.get_camera(camera)
         if not self.cap.isOpened():
@@ -30,7 +35,8 @@ class VitonThread(QThread):
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         print("Camera resolution: %dx%d" % (self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.running = True
-        self.frame_processor = FrameProcessor(garment_id_list)
+        self.rotate = ROTATIONS[rotate]
+        self.frame_processor = FrameProcessor(garment_id_list, ckpt_dir=ckpt_dir)
         # keep only the newest camera frame, so slow processing never shows stale (laggy, smeared) frames
         self.latest_frame = None
         self.frame_lock = threading.Lock()
@@ -74,7 +80,9 @@ class VitonThread(QThread):
                 time.sleep(0.005)
                 continue
 
-            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            # the camera is usually mounted sideways (portrait); see --rotate
+            if self.rotate is not None:
+                frame = cv2.rotate(frame, self.rotate)
             ## ichao: remove flip (Nov 13, 2024)
             frame=cv2.flip(frame, 1)
             frame=resize_img(frame,max_height=1024)
@@ -95,7 +103,7 @@ class VitonThread(QThread):
         self.cap.release()
 
 class CameraApp(QMainWindow):
-    def __init__(self, camera=None):
+    def __init__(self, garment_name_list, camera=None, ckpt_dir=None, rotate='cw'):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -135,18 +143,14 @@ class CameraApp(QMainWindow):
 
         # Add 15 images to the horizontal layout
         #garment_id_list = [3, 2, 17, 18, 22]
-        garment_name_list = ['lab_03','lab_04','lab_07','jin_17','jin_18','jin_22']
-        self.gid_map = dict()
-        self.gid_map[0] = -1
-        self.gid_map[1] = 3
-        self.gid_map[2] = 2
-        self.gid_map[3] = 17
-        self.gid_map[4] = 18
-        self.gid_map[5] = 22
         
         for i, garment in enumerate(garment_name_list):
             item = QListWidgetItem()
-            item.setIcon(QIcon('./assets/garment_images/'+garment+'_white_bg.jpg'))
+            icon_path = './assets/garment_images/'+garment.split('_vmsdp2ta')[0]+'_white_bg.jpg'
+            if os.path.exists(icon_path):
+                item.setIcon(QIcon(icon_path))
+            else:
+                item.setText(garment)
             item.setData(Qt.UserRole, i)
             self.list_widget.addItem(item)
         #for i in range(9):
@@ -171,10 +175,7 @@ class CameraApp(QMainWindow):
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
-        for i in range(len(garment_name_list)):
-            garment_name_list[i] = garment_name_list[i]+'_vmsdp2ta'
-
-        self.viton_thread = VitonThread(garment_name_list, camera)
+        self.viton_thread = VitonThread(garment_name_list, camera, ckpt_dir, rotate)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -236,8 +237,13 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--camera', default=None,
                         help='camera index or stream URL; defaults to trying index 1, then 0')
+    parser.add_argument('--garments', default=','.join(DEFAULT_GARMENTS),
+                        help='comma-separated checkpoint names inside --ckpt_dir')
+    parser.add_argument('--ckpt_dir', default='./rtv_ckpts', help='directory holding the garment checkpoints')
+    parser.add_argument('--rotate', default='cw', choices=list(ROTATIONS),
+                        help='rotation applied to camera frames; cw suits a camera mounted sideways')
     args, qt_args = parser.parse_known_args()
     app = QApplication(sys.argv[:1] + qt_args)
-    window = CameraApp(args.camera)
+    window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate)
     window.show()
     sys.exit(app.exec_())
