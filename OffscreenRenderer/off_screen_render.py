@@ -78,7 +78,7 @@ def read_texture(filename):
     img_np = img_np[:, :, [2,1,0]]
     #img_np = np.ones_like(img_np)*123
     img = Image.fromarray(img_np,"RGB")
-    img_data = np.array(list(img.getdata()), np.int8)
+    img_data = np.array(list(img.getdata()), np.uint8)  # uploaded as GL_UNSIGNED_BYTE; int8 overflows on numpy 2
     textID = glGenTextures(1)
     glBindTexture(GL_TEXTURE_2D, textID)
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1)

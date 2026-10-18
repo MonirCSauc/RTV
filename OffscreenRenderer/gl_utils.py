@@ -1,90 +1,106 @@
+import os
+import sys
 from typing import Tuple
+
+# Off-screen OpenGL context backend: EGL renders on the GPU with no window (Linux); Windows and macOS have no EGL,
+# so a hidden GLFW window provides the context there. Override with RTV_GL_BACKEND=egl|glfw.
+GL_BACKEND = os.environ.get('RTV_GL_BACKEND') or ('egl' if sys.platform.startswith('linux') else 'glfw')
+if GL_BACKEND == 'egl':
+    # must be set before the first OpenGL import anywhere in the process
+    os.environ.setdefault('PYOPENGL_PLATFORM', 'egl')
+
 import ctypes
 
 import numpy as np
-import OpenGL.EGL as egl
-from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
-from OpenGL.EGL.EXT.device_base import egl_get_devices
 from OpenGL import error
 from OpenGL.GL import *
 
 
-def create_initialized_headless_egl_display():
-    """Creates an initialized EGL display directly on a device.
-    """
-    for device in egl_get_devices():
-        display = egl.eglGetPlatformDisplayEXT(
-            EGL_PLATFORM_DEVICE_EXT, device, None)
+class _EGLContext:
+    def __init__(self, surface_size):
+        import OpenGL.EGL as egl
+        from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
+        from OpenGL.EGL.EXT.device_base import egl_get_devices
+        self.egl = egl
 
-        if display != egl.EGL_NO_DISPLAY and egl.eglGetError() == egl.EGL_SUCCESS:
-            # `eglInitialize` may or may not raise an exception on failure depending
-            # on how PyOpenGL is configured. We therefore catch a `GLError` and also
-            # manually check the output of `eglGetError()` here.
-            try:
-                initialized = egl.eglInitialize(display, None, None)
-            except error.GLError:
-                pass
-            else:
+        display = egl.EGL_NO_DISPLAY
+        for device in egl_get_devices():
+            candidate = egl.eglGetPlatformDisplayEXT(EGL_PLATFORM_DEVICE_EXT, device, None)
+            if candidate != egl.EGL_NO_DISPLAY and egl.eglGetError() == egl.EGL_SUCCESS:
+                # `eglInitialize` may or may not raise on failure depending on how PyOpenGL is configured,
+                # so catch GLError and also check eglGetError()
+                try:
+                    initialized = egl.eglInitialize(candidate, None, None)
+                except error.GLError:
+                    continue
                 if initialized == egl.EGL_TRUE and egl.eglGetError() == egl.EGL_SUCCESS:
-                    return display
-    return egl.EGL_NO_DISPLAY
+                    display = candidate
+                    break
+        if display == egl.EGL_NO_DISPLAY:
+            raise RuntimeError('Cannot initialize a headless EGL display.')
+
+        major, minor = egl.EGLint(), egl.EGLint()
+        egl.eglInitialize(display, ctypes.pointer(major), ctypes.pointer(minor))
+        config_attribs = [
+            egl.EGL_SURFACE_TYPE, egl.EGL_PBUFFER_BIT, egl.EGL_BLUE_SIZE, 8,
+            egl.EGL_GREEN_SIZE, 8, egl.EGL_RED_SIZE, 8, egl.EGL_DEPTH_SIZE, 24,
+            egl.EGL_RENDERABLE_TYPE, egl.EGL_OPENGL_BIT, egl.EGL_NONE
+        ]
+        config_attribs = (egl.EGLint * len(config_attribs))(*config_attribs)
+        num_configs = egl.EGLint()
+        egl_cfg = egl.EGLConfig()
+        egl.eglChooseConfig(display, config_attribs, ctypes.pointer(egl_cfg), 1, ctypes.pointer(num_configs))
+
+        width, height = surface_size
+        pbuffer_attribs = [egl.EGL_WIDTH, width, egl.EGL_HEIGHT, height, egl.EGL_NONE]
+        pbuffer_attribs = (egl.EGLint * len(pbuffer_attribs))(*pbuffer_attribs)
+        self.display = display
+        self.surface = egl.eglCreatePbufferSurface(display, egl_cfg, pbuffer_attribs)
+        egl.eglBindAPI(egl.EGL_OPENGL_API)
+        self.context = egl.eglCreateContext(display, egl_cfg, egl.EGL_NO_CONTEXT, None)
+        self.make_current()
+
+    def make_current(self):
+        self.egl.eglMakeCurrent(self.display, self.surface, self.surface, self.context)
+
+    def destroy(self):
+        self.egl.eglDestroySurface(self.display, self.surface)
+        self.egl.eglDestroyContext(self.display, self.context)
+
+
+class _GLFWContext:
+    def __init__(self, surface_size):
+        try:
+            import glfw
+        except ImportError:
+            raise RuntimeError('OpenGL rendering on %s needs the glfw package: pip install glfw' % sys.platform)
+        self.glfw = glfw
+        if not glfw.init():
+            raise RuntimeError('glfw.init() failed; check the GPU driver supports OpenGL 3.3')
+        glfw.window_hint(glfw.VISIBLE, glfw.FALSE)  # never shown: rendering goes to an off-screen framebuffer
+        # the GL viewport starts at the size of the first surface, so the hidden window must match the render size
+        self.window = glfw.create_window(surface_size[0], surface_size[1], 'rtv-offscreen', None, None)
+        if not self.window:
+            raise RuntimeError('Could not create a hidden OpenGL window with glfw')
+        self.make_current()
+        print('OpenGL renderer: %s (%s)' % (glGetString(GL_RENDERER).decode(), glGetString(GL_VERSION).decode()))
+
+    def make_current(self):
+        self.glfw.make_context_current(self.window)
+
+    def destroy(self):
+        self.glfw.destroy_window(self.window)
 
 
 def create_opengl_context(surface_size: Tuple[int, int]):
-    """Create offscreen OpenGL context and make it current.
-
-    Users are expected to directly use EGL API in case more advanced
-
-    context management is required.
+    """Create an off-screen OpenGL context and make it current.
 
     Args:
-        surface_size: (width, height), size of the offscreen rendering surface.
+        surface_size: (width, height); rendering itself goes to a framebuffer object of the caller's size.
 
+    Returns an object with make_current() and destroy().
     """
-    egl_display = create_initialized_headless_egl_display()
-
-    if egl_display == egl.EGL_NO_DISPLAY:
-        raise RuntimeError('Cannot initialize a headless EGL display.')
-
-    major, minor = egl.EGLint(), egl.EGLint()
-
-    egl.eglInitialize(egl_display, ctypes.pointer(
-        major), ctypes.pointer(minor))
-
-    config_attribs = [
-        egl.EGL_SURFACE_TYPE, egl.EGL_PBUFFER_BIT, egl.EGL_BLUE_SIZE, 8,
-        egl.EGL_GREEN_SIZE, 8, egl.EGL_RED_SIZE, 8, egl.EGL_DEPTH_SIZE, 24,
-        egl.EGL_RENDERABLE_TYPE, egl.EGL_OPENGL_BIT, egl.EGL_NONE
-    ]
-    config_attribs = (egl.EGLint * len(config_attribs))(*config_attribs)
-
-    num_configs = egl.EGLint()
-    egl_cfg = egl.EGLConfig()
-
-    egl.eglChooseConfig(egl_display, config_attribs, ctypes.pointer(egl_cfg), 1,
-                        ctypes.pointer(num_configs))
-
-    width, height = surface_size
-
-    pbuffer_attribs = [
-        egl.EGL_WIDTH,
-        width,
-        egl.EGL_HEIGHT,
-        height,
-        egl.EGL_NONE,
-    ]
-    pbuffer_attribs = (egl.EGLint * len(pbuffer_attribs))(*pbuffer_attribs)
-    egl_surf = egl.eglCreatePbufferSurface(
-        egl_display, egl_cfg, pbuffer_attribs)
-
-    egl.eglBindAPI(egl.EGL_OPENGL_API)
-
-    egl_context = egl.eglCreateContext(
-        egl_display, egl_cfg, egl.EGL_NO_CONTEXT, None)
-
-    egl.eglMakeCurrent(egl_display, egl_surf, egl_surf, egl_context)
-
-    return egl_display, egl_surf, egl_context
+    return _EGLContext(surface_size) if GL_BACKEND == 'egl' else _GLFWContext(surface_size)
 
 
 def init_frame_buffer(frame_image: np.ndarray, num_samples: int = 16):

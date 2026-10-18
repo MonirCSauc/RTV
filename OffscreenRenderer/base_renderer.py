@@ -1,15 +1,14 @@
 import argparse
 import os
 
-os.environ["PYOPENGL_PLATFORM"] = "egl"
 
+# gl_utils selects the OpenGL platform (EGL or GLFW), so import it before OpenGL
+from OffscreenRenderer.gl_utils import create_opengl_context, init_frame_buffer
 import numpy as np
-import OpenGL.EGL as egl
 from OpenGL.GL import *
 from OpenGL.GL import shaders
 from PIL import Image
 
-from OffscreenRenderer.gl_utils import create_opengl_context, init_frame_buffer
 from OffscreenRenderer.base_shaders  import VERTEX_SHADER, GEOMETRY_SHADER, FRAGMENT_SHADER
 from OffscreenRenderer.off_screen_render import VertextAttribType, IndexType, generate_vao, set_shader_params, render, \
     read_texture
@@ -22,7 +21,7 @@ OpenglTriangleIndexType = GL_UNSIGNED_INT
 
 class BaseRenderer:
     def __init__(self, height=512, width=512):
-        self.display, self.egl_surf, self.opengl_context = create_opengl_context(
+        self.gl_context = create_opengl_context(
             (width, height))
         self.height = height
         self.width = width
@@ -38,12 +37,14 @@ class BaseRenderer:
         self.render_frame_object = init_frame_buffer(self.rendered_image)
 
     def __del__(self):
-        #glDeleteFramebuffers(1, self.render_frame_object)
-        egl.eglDestroySurface(self.display, self.egl_surf)
-        egl.eglDestroyContext(self.display, self.opengl_context)
+        try:
+            self.gl_context.destroy()
+        except Exception:
+            pass  # interpreter shutdown: the GL library may already be unloaded
 
     def render(self, vertex_positions, face_indices, matrix_model=None, matrix_view=None,
                matrix_proj=None):
+        self.gl_context.make_current()
 
 
         if self.vao is None:
