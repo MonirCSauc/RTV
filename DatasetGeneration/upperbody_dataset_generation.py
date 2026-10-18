@@ -107,7 +107,7 @@ def gen_dataset(source_path, mask_dir,dataset_name):
                                          borderMode=cv2.BORDER_CONSTANT,
                                          borderValue=(0, 0, 0))
 
-        garment_path=os.path.join(target_path,str(i).zfill(5) + '_garment.jpg')
+        garment_path=os.path.join(target_path,str(i).zfill(5) + '_garment.png')  # lossless: JPEG rings at the garment edge
         vm_path=os.path.join(target_path,str(i).zfill(5) + '_vm.jpg')
         mask_path = os.path.join(target_path, str(i).zfill(5) + '_mask.png')
         iuv_path = os.path.join(target_path, str(i).zfill(5) + '_iuv.npy')

@@ -16,13 +16,19 @@ from util.image_warp import crop2_169
 
 from VITON.viton_upperbody import FrameProcessor
 from util.camera_util import list_available_cameras
+from util.latency import LatencyRecorder, now, draw_latency_marker
+from util.gpu_check import require_cuda
+
+
+DEFAULT_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
+                    'jin_17_vmsdp2ta', 'jin_18_vmsdp2ta', 'jin_22_vmsdp2ta']
+ROTATIONS = {'cw': cv2.ROTATE_90_CLOCKWISE, 'ccw': cv2.ROTATE_90_COUNTERCLOCKWISE, '180': cv2.ROTATE_180, 'none': None}
 
 
 class VitonThread(QThread):
-    frameCaptured = pyqtSignal(QImage)
-    ROTATIONS = {'90': cv2.ROTATE_90_CLOCKWISE, '180': cv2.ROTATE_180, '270': cv2.ROTATE_90_COUNTERCLOCKWISE}
+    frameCaptured = pyqtSignal(QImage, object)  # (image, FrameTiming)
 
-    def __init__(self,garment_id_list,camera=None):
+    def __init__(self,garment_id_list,camera=None,ckpt_dir=None,rotate='cw',latency_csv=None,marker=False):
         super().__init__()
         self.cap = self.get_camera(camera)
         if not self.cap.isOpened():
@@ -30,7 +36,11 @@ class VitonThread(QThread):
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         print("Camera resolution: %dx%d" % (self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.running = True
-        self.frame_processor = FrameProcessor(garment_id_list)
+        self.rotate = ROTATIONS[rotate]
+        # timing is off unless --latency_csv is given; then every stage syncs CUDA so its GPU time is billed correctly
+        self.lat = LatencyRecorder(enabled=latency_csv is not None, sync_cuda=True, csv_path=latency_csv)
+        self.marker = marker
+        self.frame_processor = FrameProcessor(garment_id_list, ckpt_dir=ckpt_dir)
         self.grabber = None
 
     def set_taregt_id(self, id):
@@ -73,8 +83,10 @@ class VitonThread(QThread):
         # Drain the stream continuously so processing never works on stale, buffered frames
         while self.running:
             ret, frame = self.cap.read()
+            t_cap = now()  # earliest software timestamp; exposure and transfer delay happen before this
             if ret:
-                self._latest = frame
+                self.lat.on_capture()
+                self._latest = (frame, t_cap)
             else:
                 self.msleep(10)
 
@@ -87,26 +99,34 @@ class VitonThread(QThread):
         max_h = int(os.environ.get('RTV_HEIGHT', '1024'))
         max_w = max_h * 9 // 16
         while self.running:
-            frame, self._latest = self._latest, None
-            if frame is None:
+            item, self._latest = self._latest, None
+            if item is None:
                 self.msleep(2)
                 continue
-            # RTV_ROTATE: clockwise rotation in degrees (0/90/180/270), default 90 for a portrait-mounted webcam
-            rot = self.ROTATIONS.get(os.environ.get('RTV_ROTATE', '90'))
-            if rot is not None:
-                frame = cv2.rotate(frame, rot)
-            ## ichao: remove flip (Nov 13, 2024)
-            frame=cv2.flip(frame, 1)
-            frame=crop2_169(frame)
-            frame=cv2.resize(frame, (max_w, max_h),
-                             interpolation=cv2.INTER_CUBIC if frame.shape[0] < max_h else cv2.INTER_AREA)
-            frame = self.frame_processor(frame)
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            height, width, channel = frame.shape
-            step = channel * width
-            # copy: the QImage is delivered to the GUI thread later, after this frame's buffer is gone
-            q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888).copy()
-            self.frameCaptured.emit(q_img)
+            frame, t_cap = item
+            ft = self.lat.new_frame(t_cap)
+            ft.mark('dequeued')  # dequeued - captured = time spent waiting for the previous frame to finish
+
+            with ft.stage('prep'):
+                # the camera is usually mounted sideways (portrait); see --rotate
+                if self.rotate is not None:
+                    frame = cv2.rotate(frame, self.rotate)
+                ## ichao: remove flip (Nov 13, 2024)
+                frame=cv2.flip(frame, 1)
+                frame=crop2_169(frame)
+                frame=cv2.resize(frame, (max_w, max_h),
+                                 interpolation=cv2.INTER_CUBIC if frame.shape[0] < max_h else cv2.INTER_AREA)
+            frame = self.frame_processor(frame, ft)
+            with ft.stage('qimage'):
+                if self.marker:
+                    frame = draw_latency_marker(frame.copy(), ft.frame_id, t_cap)
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                height, width, channel = frame.shape
+                step = channel * width
+                # copy: the QImage is delivered to the GUI thread later, after this frame's buffer is gone
+                q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888).copy()
+            ft.mark('emit')
+            self.frameCaptured.emit(q_img, ft)
 
     def reset_background(self):
         self.frame_processor.reset_background()
@@ -120,9 +140,12 @@ class VitonThread(QThread):
         if self.grabber is not None:
             self.grabber.join(timeout=1.0)
         self.cap.release()
+        if self.lat.enabled:
+            print(self.lat.summary())
+        self.lat.close()
 
 class CameraApp(QMainWindow):
-    def __init__(self, camera=None):
+    def __init__(self, garment_name_list, camera=None, ckpt_dir=None, rotate='cw', latency_csv=None, marker=False):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -162,18 +185,14 @@ class CameraApp(QMainWindow):
 
         # Add 15 images to the horizontal layout
         #garment_id_list = [3, 2, 17, 18, 22]
-        garment_name_list = ['lab_03','lab_04','lab_07','jin_17','jin_18','jin_22']
-        self.gid_map = dict()
-        self.gid_map[0] = -1
-        self.gid_map[1] = 3
-        self.gid_map[2] = 2
-        self.gid_map[3] = 17
-        self.gid_map[4] = 18
-        self.gid_map[5] = 22
         
         for i, garment in enumerate(garment_name_list):
             item = QListWidgetItem()
-            item.setIcon(QIcon('./assets/garment_images/'+garment+'_white_bg.jpg'))
+            icon_path = './assets/garment_images/'+garment.split('_vmsdp2ta')[0]+'_white_bg.jpg'
+            if os.path.exists(icon_path):
+                item.setIcon(QIcon(icon_path))
+            else:
+                item.setText(garment)
             item.setData(Qt.UserRole, i)
             self.list_widget.addItem(item)
         #for i in range(9):
@@ -198,10 +217,7 @@ class CameraApp(QMainWindow):
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
-        for i in range(len(garment_name_list)):
-            garment_name_list[i] = garment_name_list[i]+'_vmsdp2ta'
-
-        self.viton_thread = VitonThread(garment_name_list, camera)
+        self.viton_thread = VitonThread(garment_name_list, camera, ckpt_dir, rotate, latency_csv, marker)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -254,9 +270,13 @@ class CameraApp(QMainWindow):
 
 
 
-    def update_image(self, q_img):
+    def update_image(self, q_img, ft):
+        ft.mark('gui_recv')  # delay of the queued signal from the processing thread to the GUI thread
         pixmap = QPixmap.fromImage(q_img)
         self.image_label.setPixmap(pixmap.scaled(self.image_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        if self.viton_thread.lat.enabled:
+            self.image_label.repaint()  # paint now, so 'shown' means handed to the window system
+            self.viton_thread.lat.finish(ft)
 
     def closeEvent(self, event):
         self.viton_thread.stop()
@@ -268,8 +288,19 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--camera', default=None,
                         help='camera index or stream URL; defaults to RTV_CAMERA, then the first working device')
+    parser.add_argument('--garments', default=','.join(DEFAULT_GARMENTS),
+                        help='comma-separated checkpoint names inside --ckpt_dir')
+    parser.add_argument('--ckpt_dir', default='./rtv_ckpts', help='directory holding the garment checkpoints')
+    parser.add_argument('--rotate', default='cw', choices=list(ROTATIONS),
+                        help='rotation applied to camera frames; cw suits a camera mounted sideways')
+    parser.add_argument('--latency_csv', default=None,
+                        help='write per-frame stage timings and capture-to-display latency to this CSV')
+    parser.add_argument('--latency_marker', action='store_true',
+                        help='draw the frame id and capture time into the output, for filming the mirror')
     args, qt_args = parser.parse_known_args()
+    require_cuda()
     app = QApplication(sys.argv[:1] + qt_args)
-    window = CameraApp(args.camera)
+    window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate,
+                       args.latency_csv, args.latency_marker)
     window.show()
     sys.exit(app.exec_())

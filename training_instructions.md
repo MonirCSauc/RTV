@@ -26,7 +26,7 @@ Create a directory and extract the tar file inside this directory. Run the follo
 ```
 python DatasetGeneration/upperbody_dataset_generation.py --video_path <path to video> --mask_dir <path to mask dir> --dataset_name <name of this garment>
 ```
-A dataset will be generated under `./PerGarmentDatasets`.
+A dataset will be generated under `./PerGarmentDatasets`. Garment crops are saved as lossless PNG (datasets generated earlier with `_garment.jpg` files can still be used for training).
 
 ## Step 4
 Train your own garment checkpoint using this command:
@@ -34,6 +34,8 @@ Train your own garment checkpoint using this command:
 python Training/upperbody_training.py  --model pix2pixHD_RGBA --input_nc 6 --output_nc=4 --batchSize 4 --img_size 512 --dataset_path ./PerGarmentDatasets/<dataset name> --name <garment name> --niter 80 --niter_decay 80
 ```
 A checkpoint will be generated under `./checkpoints`.
+
+During training, the colour of pixels along the garment edge (which are blended with the black cut-out background) is replaced with colour taken from the garment interior, so the network learns clean, straight colour instead of a dark outline. Training also writes `rtv_meta.json` into the checkpoint folder; inference reads it to blend the garment correctly. Checkpoints without this file, such as the released `rtv_ckpts`, are treated as having darkened (premultiplied) edges and are still blended correctly.
 
 ## Step 5
 Run this command to use your trained checkpoint for virtual try-on. We provide an example video as input [here](https://huggingface.co/datasets/wuzaiqiang/Per-GarmentDataset/blob/main/example_input.mp4).

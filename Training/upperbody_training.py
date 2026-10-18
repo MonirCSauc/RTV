@@ -9,6 +9,7 @@ from collections import OrderedDict
 from Datasets.upperbody_garment.upperbody_garment import UpperBodyGarment
 from options.train_options import TrainOptions
 from model.pix2pixHD.models import create_model
+from model.garment_model import write_meta
 import util.util as util
 from util.visualizer import Visualizer
 import torchvision
@@ -32,6 +33,8 @@ def main():
     dataset_size=len(dataset)
     dataloader=torch.utils.data.DataLoader(dataset, batch_size=opt.batchSize, shuffle=True, sampler=None, batch_sampler=None, num_workers=0, collate_fn=None, pin_memory=False, drop_last=False, timeout=0, worker_init_fn=None, multiprocessing_context=None)
     model=create_model(opt)
+    # the dataset provides straight (not premultiplied) garment colour; inference composites accordingly
+    write_meta(opt.checkpoints_dir, opt.name, {'color': 'straight'})
     visualizer = Visualizer(opt)
     start_epoch, epoch_iter = 1, 0
     opt.print_freq = lcm(opt.print_freq, opt.batchSize)

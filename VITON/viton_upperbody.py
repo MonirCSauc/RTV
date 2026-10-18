@@ -4,113 +4,88 @@ import threading
 import numpy as np
 import cv2
 
-import util.util
-from options.test_options import TestOptions
-from model.pix2pixHD.models import create_model
 import util.util as util
 import torch
-from util.multithread_video_loader import MultithreadVideoLoader
-from util.image2video import Image2VideoWriter
 from SMPL.smpl_regressor import SMPL_Regressor
-import glm
-from OffscreenRenderer.flat_renderer import FlatRenderer
-from util.image_warp import zoom_in, zoom_out, shift_image_right, shift_image_down, rotate_image
-from util.image_process import blur_image
-#from composition.short_sleeve_composition import ShortSleeveComposer
 from model.DensePose.densepose_extractor import DensePoseExtractor
-import time
+from model.garment_model import make_pix2pix_model, read_meta
 
 from SMPL.upperbody_smpl.UpperBody import UpperBodySMPL
-from tqdm import tqdm
-from composition.naive_overlay import naive_overlay, naive_overlay_alpha
-from util.densepose_util import IUV2UpperBodyImg, IUV2TorsoLeg, IUV2SDP
-from threading import Thread
 import torch.nn.functional as F
-from util.cv2_trans_util import TemporalSmoothing
+from composition.compositor import GarmentCompositor
 from composition.garment_removal import WornGarmentRemover
-
-
-def make_pix2pix_model(name, input_nc, output_nc=3, model_name='pix2pixHD',ckpt_dir=None):
-    opt = TestOptions().parse(save=False, use_default=True, show_info=False)
-    opt.nThreads = 1  # test code only supports nThreads = 1
-    opt.batchSize = 1  # test code only supports batchSize = 1
-    opt.serial_batches = True  # no shuffle
-    opt.no_flip = True  # no flip
-    opt.name = name
-    opt.input_nc = input_nc
-    opt.output_nc = output_nc
-    opt.isTrain = False
-    opt.model = model_name
-    if ckpt_dir is None:
-        opt.checkpoints_dir='./rtv_ckpts'
-    else:
-        opt.checkpoints_dir=ckpt_dir
-    opt.gpu_ids=''#load to cpu
-    model = create_model(opt)
-    # print(model)
-    return model
+from util.cv2_trans_util import TemporalSmoothing
+from threading import Thread
+from util.latency import NULL_TIMING
+from util.gpu_check import report_devices
 
 
 class FrameProcessor:
-    def __init__(self, garment_name_list,ckpt_dir=None):
+    def __init__(self, garment_name_list, ckpt_dir=None):
         self.smpl_regressor = SMPL_Regressor(use_bev=True)
         self.viton_model = None
-        self.ckpt_dir = ckpt_dir
+        self.compositor = None
+        self.ckpt_dir = ckpt_dir if ckpt_dir is not None else './rtv_ckpts'
         # RTV_DP_SIZE: short side DensePose runs at (detectron2 default is 800). Smaller is faster.
         dp_size = int(os.environ.get('RTV_DP_SIZE', '448'))
         self.densepose_extractor = DensePoseExtractor(opts=[
             'INPUT.MIN_SIZE_TEST', dp_size, 'INPUT.MAX_SIZE_TEST', dp_size * 2,
             'MODEL.RPN.PRE_NMS_TOPK_TEST', 300, 'MODEL.RPN.POST_NMS_TOPK_TEST', 50])
         self.upper_body = UpperBodySMPL()
-        self.garment_name_list = garment_name_list#[2, 3, 17, 18, 22]
+        self.garment_name_list = garment_name_list
         self.viton_model_list = [None for i in range(len(self.garment_name_list))]
-        self.lock = threading.Lock()
+        # how each checkpoint's colour was trained decides how it is composited
+        self.compositor_list = [GarmentCompositor(premultiplied=read_meta(self.ckpt_dir, name)['color'] == 'premultiplied')
+                                for name in self.garment_name_list]
+        # the ROI only frames the network input (output is warped back with its inverse), so smoothing it
+        # removes jitter from noisy joints without misaligning the garment
         self.roi_smoothing = TemporalSmoothing(c=0.5)
+        self.lock = threading.Lock()
         # RTV_REMOVE_CLOTHES=0 goes back to overlaying the garment on top of the worn one
         self.remove_worn = os.environ.get('RTV_REMOVE_CLOTHES', '1') != '0'
         self.garment_remover = WornGarmentRemover()
         self.grid_cache = {}
         self.sdp_lut = None
+        print('Model devices:')
+        report_devices({'BEV': self.smpl_regressor.regressor_model,
+                        'DensePose': self.densepose_extractor.predictor.model})
 
         self.load_all = Thread(target=self.load_all_models, args=())
         self.load_all.daemon = True
         self.load_all.start()
 
+    def make_model(self, garment_name):
+        return make_pix2pix_model(garment_name, 6, output_nc=4, model_name='pix2pixHD', ckpt_dir=self.ckpt_dir)
+
     def load_all_models(self):
         for i, garment_name in enumerate(self.garment_name_list):
-            new_model = make_pix2pix_model(garment_name, 6, output_nc=4,ckpt_dir=self.ckpt_dir)
+            new_model = self.make_model(garment_name)
             if self.viton_model_list[i] is None:
-                self.viton_model_list[i]= new_model
+                self.viton_model_list[i] = new_model
 
     def load_one_models(self, garment_name):
-        new_model = make_pix2pix_model(garment_name, 6, output_nc=4,ckpt_dir=self.ckpt_dir)
+        new_model = self.make_model(garment_name)
         id = self.garment_name_list.index(garment_name)
         if self.viton_model_list[id] is None:
-            self.viton_model_list[id]= new_model
+            self.viton_model_list[id] = new_model
 
-    def switch_to_target_garment(self,garment_id):
-        self.lock.acquire()
-        print("Loading from CPU target garment id: ", garment_id)
-        id = garment_id
-        if self.viton_model_list[id] is None and id >= 0:
-            print("Loading from disk target garment id: ", garment_id)
-            self.load_one_models(self.garment_name_list[id])
-        old_model = self.viton_model
-        new_model=self.viton_model_list[id].to('cuda:0') if garment_id>=0 else None
-        print("Finished")
-        if self.viton_model is not None:
-            del self.viton_model
-        self.viton_model = new_model
-        if old_model is not None:
-            old_model = old_model.to('cpu')
-            del old_model
-            torch.cuda.empty_cache()
-        self.lock.release()
-
+    def switch_to_target_garment(self, garment_id):
+        with self.lock:
+            print("Loading from CPU target garment id: ", garment_id)
+            id = garment_id
+            if id >= 0 and self.viton_model_list[id] is None:
+                print("Loading from disk target garment id: ", garment_id)
+                self.load_one_models(self.garment_name_list[id])
+            old_model = self.viton_model
+            new_model = self.viton_model_list[id].to('cuda:0') if garment_id >= 0 else None
+            print("Finished; garment network on", next(new_model.parameters()).device if new_model is not None else None)
+            self.viton_model = new_model
+            self.compositor = self.compositor_list[id] if garment_id >= 0 else None
+            if old_model is not None and old_model is not new_model:
+                old_model.to('cpu')
+                torch.cuda.empty_cache()
 
     def set_target_garment(self, target_id):
-        #new_model = make_pix2pix_model(ckpt_dict[target_id], 6, output_nc=4)
-        #self.viton_model = self.viton_model_list[target_id]
         t = Thread(target=self.switch_to_target_garment, args=(target_id,))
         t.daemon = True
         t.start()
@@ -145,7 +120,8 @@ class FrameProcessor:
         self.garment_remover.reset_background()
 
     @torch.no_grad()
-    def __call__(self, input_frame):
+    def __call__(self, input_frame, ft=NULL_TIMING):
+        # ft: per-frame timing record (util/latency.py); stages are no-ops unless latency logging is on
         if self.viton_model is None:
             return input_frame
 
@@ -153,9 +129,11 @@ class FrameProcessor:
         raw_image = input_frame
         height, width = raw_image.shape[:2]
 
-        smpl_data = self.smpl_regressor.forward(raw_image, True, size=1.45,
-                                                roi_img_size=resolution)
-        raw_IUV = self.densepose_extractor.get_IUV_tensor(raw_image)
+        with ft.stage('bev'):
+            smpl_data = self.smpl_regressor.forward(raw_image, True, size=1.45,
+                                                    roi_img_size=resolution)
+        with ft.stage('densepose'):
+            raw_IUV = self.densepose_extractor.get_IUV_tensor(raw_image)
         smpl_param = smpl_data[0] if len(smpl_data) >= 3 else None
         if smpl_param is None:
             self.roi_smoothing.past_trans = None
@@ -167,47 +145,53 @@ class FrameProcessor:
             return input_frame
         trans2roi, inv_trans2roi = self.roi_smoothing(smpl_data[1])
 
-        vertices = SMPL_Regressor.get_raw_verts(smpl_param)
-        raw_vm = self.upper_body.render(torch.from_numpy(vertices), height=height, width=width)
-        vm = torch.from_numpy(raw_vm).cuda().permute(2, 0, 1)[None].float() / 255.0
-        sdp, labels = self._iuv2sdp(raw_IUV)
-
-        vm_tensor = self._sample(vm, inv_trans2roi, resolution, resolution) * 2.0 - 1.0
-        vm_tensor = vm_tensor[:, [2, 1, 0], :, :]
-        dp_tensor = self._sample(sdp, inv_trans2roi, resolution, resolution) * 2.0 - 1.0
+        with ft.stage('vm_render'):
+            vertices = SMPL_Regressor.get_raw_verts(smpl_param)
+            raw_vm = self.upper_body.render(torch.from_numpy(vertices), height=height, width=width)
+        with ft.stage('inputs'):
+            vm = torch.from_numpy(raw_vm).cuda().permute(2, 0, 1)[None].float() / 255.0
+            sdp, labels = self._iuv2sdp(raw_IUV)
+            vm_tensor = self._sample(vm, inv_trans2roi, resolution, resolution) * 2.0 - 1.0
+            vm_tensor = vm_tensor[:, [2, 1, 0], :, :]
+            dp_tensor = self._sample(sdp, inv_trans2roi, resolution, resolution) * 2.0 - 1.0
         with self.lock:
             if self.viton_model is None:
                 return input_frame
-            with torch.autocast('cuda', dtype=torch.float16):
+            compositor = self.compositor
+            with ft.stage('generator'), torch.autocast('cuda', dtype=torch.float16):
                 target_tensor = self.viton_model.forward(torch.cat([vm_tensor, dp_tensor], 1))
-        target_tensor = target_tensor.float()
-        # BGR colour in [0, 255] plus coverage in [0, 1], warped back onto the full frame
-        roi_target = torch.cat([(target_tensor[:, [2, 1, 0]] + 1.0) * 127.5, target_tensor[:, 3:4]], 1)
-        raw_target = self._sample(roi_target.clamp(0.0, 255.0), trans2roi, height, width)[0]
-        garment = raw_target[:3].permute(1, 2, 0)
-        alpha = soft_alpha(raw_target[3])
-
-        # keep hands and face in front of the garment
-        alpha = alpha * (1.0 - hand_head_mask(labels))
-
-        frame = torch.from_numpy(raw_image).cuda().float()
-        if self.remove_worn:
-            roi_side = resolution / float(np.linalg.norm(trans2roi[0, :2]))
-            frame = self.garment_remover(frame, labels, vm[0].amax(0) > 0, alpha, roi_side)
-        composed = torch.lerp(frame, garment, alpha[..., None])
-        return composed.clamp(0.0, 255.0).to(torch.uint8).cpu().numpy()
-
-
-def soft_alpha(alpha):
-    # alpha: (H, W) raw coverage. Shrink by a pixel to drop the dark fringe, then keep a soft edge
-    # instead of the hard >0.5 cut-off, which is what made garment borders look jagged.
-    alpha = -F.max_pool2d(-alpha[None, None], 3, 1, 1)[0, 0]
-    return ((alpha - 0.3) / 0.4).clamp(0.0, 1.0)
+        with ft.stage('warp_back'):
+            target_tensor = target_tensor.float()
+            # BGR colour in [0, 255] plus coverage in [0, 1], warped back onto the full frame
+            roi_target = torch.cat([(target_tensor[:, [2, 1, 0]] + 1.0) * 127.5, target_tensor[:, 3:4]], 1)
+            raw_target = self._sample(roi_target.clamp(0.0, 255.0), trans2roi, height, width)[0]
+        with ft.stage('composite'):
+            garment, alpha = composite_inputs(compositor, raw_target[:3].permute(1, 2, 0), raw_target[3])
+            # keep hands and face in front of the garment
+            alpha = alpha * (1.0 - hand_head_mask(labels))
+            frame = torch.from_numpy(raw_image).cuda().float()
+            if self.remove_worn:
+                roi_side = resolution / float(np.linalg.norm(trans2roi[0, :2]))
+                frame = self.garment_remover(frame, labels, vm[0].amax(0) > 0, alpha, roi_side)
+            composed = torch.lerp(frame, garment, alpha[..., None])
+            return composed.clamp(0.0, 255.0).to(torch.uint8).cpu().numpy()
 
 
-def hand_head_mask(labels, dilate_px=5):
-    # GPU version of util.densepose_util.IUV2HandHeadMask: DensePose hands (3, 4) and head (23, 24),
-    # dilated, then box-blurred for a feathered edge. labels: (H, W) long -> (H, W) float in [0, 1]
+def composite_inputs(compositor, garment, alpha, eps=1e-3):
+    # GPU version of composition.compositor.GarmentCompositor's colour/alpha handling.
+    # garment: (H, W, 3) in [0, 255]; alpha: (H, W) raw coverage -> straight colour and soft alpha
+    alpha = alpha.clamp(0.0, 1.0)
+    if compositor.premultiplied:
+        # the network learned colour darkened by alpha along the edge; undo it to drop the dark outline
+        garment = (garment / alpha.clamp(min=eps)[..., None]).clamp(0.0, 255.0) * (alpha > eps)[..., None]
+    a = ((alpha - compositor.alpha_low) / (compositor.alpha_high - compositor.alpha_low)).clamp(0.0, 1.0)
+    return garment, a
+
+
+def hand_head_mask(labels):
+    # GPU version of util.densepose_util.IUV2HandHeadMask (+ the compositor's feathering): DensePose
+    # hands (3, 4) and head (23, 24), grown 2px, then lightly blurred so the soft edge sits on their boundary.
+    # labels: (H, W) long -> (H, W) float in [0, 1]
     mask = ((labels == 3) | (labels == 4) | (labels == 23) | (labels == 24)).float()[None, None]
-    mask = F.max_pool2d(mask, 2 * dilate_px + 1, 1, dilate_px)
+    mask = F.max_pool2d(mask, 5, 1, 2)
     return F.avg_pool2d(mask, 5, 1, 2)[0, 0]

@@ -177,8 +177,8 @@ class Pix2PixHD_RNN_RGBA(Pix2PixHDModel):
             real_image = real_image.view(-1,*real_image.shape[2:])
             real_mask = real_mask.view(-1,*real_mask.shape[2:])
             if normalized:
-                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 1.0),
-                                               (real_image * 0.5 + 1.0) ) * self.opt.lambda_feat
+                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 0.5),
+                                               (real_image * 0.5 + 0.5) ) * self.opt.lambda_feat
 
             else:
                 loss_G_VGG = self.criterionVGG(fake_image, real_image) * self.opt.lambda_feat

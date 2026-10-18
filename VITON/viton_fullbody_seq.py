@@ -26,28 +26,13 @@ from composition.naive_overlay import naive_overlay, naive_overlay_alpha
 from util.densepose_util import IUV2UpperBodyImg, IUV2TorsoLeg, IUV2SDP, IUV2SSDP, IUV2HandHeadMask
 from threading import Thread
 from util.cv2_trans_util import TemporalSmoothing
-
-def make_pix2pix_model(name, input_nc=6, output_nc=4, model_name='pix2pixHD_RNN_RGBA'):
-    opt = TestOptions().parse(save=False, use_default=True, show_info=False)
-    opt.nThreads = 1  # test code only supports nThreads = 1
-    opt.batchSize = 1  # test code only supports batchSize = 1
-    opt.serial_batches = True  # no shuffle
-    opt.no_flip = True  # no flip
-    opt.name = name
-    opt.input_nc = input_nc
-    opt.output_nc = output_nc
-    opt.isTrain = False
-    opt.model = model_name
-    opt.checkpoints_dir='./rtv_ckpts'
-    opt.gpu_ids=''#load to cpu
-    model = create_model(opt)
-    # print(model)
-    return model.cuda()
-
+from model.garment_model import make_pix2pix_model, read_meta
+from composition.compositor import GarmentCompositor
 
 class FullBodySeqFrameProcessor:
     def __init__(self, target_name='coat_seq_vmssdp2ta_576'):
-        self.viton_model = make_pix2pix_model(target_name)
+        self.viton_model = make_pix2pix_model(target_name, model_name='pix2pixHD_RNN_RGBA', on_gpu=True)
+        self.compositor = GarmentCompositor(premultiplied=read_meta('./rtv_ckpts', target_name)['color'] == 'premultiplied')
         self.smpl_regressor = SMPL_Regressor(use_bev=True, fix_body=True)
         self.full_body = FullBodySMPL()
         self.temporal_smoothing = TemporalSmoothing(c=0.9)
@@ -107,6 +92,6 @@ class FullBodySeqFrameProcessor:
                                    borderMode=cv2.BORDER_CONSTANT,
                                    borderValue=(0,))
         occlusion_mask = IUV2HandHeadMask(IUV)
-        composed_img = naive_overlay_alpha(raw_image, raw_target_img, raw_alpha, occlusion_mask)
+        composed_img = self.compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
 
         return composed_img

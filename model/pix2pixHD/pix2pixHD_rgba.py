@@ -54,8 +54,8 @@ class Pix2PixHD_RGBA(Pix2PixHDModel):
         normalized = True
         if not self.opt.no_vgg_loss:
             if normalized:
-                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 1.0) * fake_mask,
-                                               (real_image * 0.5 + 1.0) * real_mask) * self.opt.lambda_feat
+                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 0.5) * fake_mask,
+                                               (real_image * 0.5 + 0.5) * real_mask) * self.opt.lambda_feat
             else:
                 loss_G_VGG = self.criterionVGG(fake_image, real_image) * self.opt.lambda_feat
 
@@ -105,8 +105,8 @@ class Pix2PixHD_RGBA(Pix2PixHDModel):
         normalized = True
         if not self.opt.no_vgg_loss:
             if normalized:
-                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 1.0) * fake_mask,
-                                               (real_image * 0.5 + 1.0) * real_mask) * self.opt.lambda_feat
+                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 0.5) * fake_mask,
+                                               (real_image * 0.5 + 0.5) * real_mask) * self.opt.lambda_feat
             else:
                 loss_G_VGG = self.criterionVGG(fake_image, real_image) * self.opt.lambda_feat
 
@@ -161,8 +161,8 @@ class Pix2PixHD_RGBA(Pix2PixHDModel):
         normalized = True
         if not self.opt.no_vgg_loss:
             if normalized:
-                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 1.0) * fake_mask,
-                                               (real_image * 0.5 + 1.0) * real_mask) * self.opt.lambda_feat
+                loss_G_VGG = self.criterionVGG((fake_image * 0.5 + 0.5) * fake_mask,
+                                               (real_image * 0.5 + 0.5) * real_mask) * self.opt.lambda_feat
             else:
                 loss_G_VGG = self.criterionVGG(fake_image, real_image) * self.opt.lambda_feat
         return [loss_G_GAN, loss_G_GAN_Feat, loss_G_VGG, loss_D_real, loss_D_fake]
