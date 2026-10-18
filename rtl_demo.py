@@ -363,9 +363,11 @@ if __name__ == "__main__":
     parser.add_argument('--keep_garments_on_gpu', action='store_true',
                         help='keep all garment networks on the GPU (~0.8 GB each) for instant switching; only with '
                              'plenty of GPU memory, otherwise Windows slows every frame down')
+    parser.add_argument('--keep_in_front', default='hands_head', choices=['hands_head', 'hands', 'none'],
+                        help='body parts drawn in front of the garment (hands_head, hands only, or none)')
     args, qt_args = parser.parse_known_args()
     processor_options = {'dp_score': args.dp_score, 'body_shape': args.body_shape,
-                         'keep_garments_on_gpu': args.keep_garments_on_gpu}
+                         'keep_garments_on_gpu': args.keep_garments_on_gpu, 'keep_in_front': args.keep_in_front}
     require_cuda()
     app = QApplication(sys.argv[:1] + qt_args)
     window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate,

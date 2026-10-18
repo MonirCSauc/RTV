@@ -49,10 +49,17 @@ def iuv_to_sdp(iuv):
 _ELLIPSE = {}
 
 
-def hand_head_mask(iuv, dilate_px=2):
+# DensePose part labels kept in front of the garment (see --keep_in_front)
+KEEP_IN_FRONT = {'hands_head': (3, 4, 23, 24), 'hands': (3, 4), 'none': ()}
+
+
+def hand_head_mask(iuv, dilate_px=2, parts=(3, 4, 23, 24)):
     """IUV2HandHeadMask on the GPU: float (H, W) in {0, 1}, dilated with OpenCV's elliptical kernel."""
     label = iuv[..., 0]
-    mask = ((label == 3) | (label == 4) | (label == 23) | (label == 24)).float()[None, None]
+    mask = torch.zeros_like(label, dtype=torch.bool)
+    for part in parts:
+        mask |= label == part
+    mask = mask.float()[None, None]
     if dilate_px > 0:
         k = 2 * dilate_px + 1
         if (k, iuv.device) not in _ELLIPSE:

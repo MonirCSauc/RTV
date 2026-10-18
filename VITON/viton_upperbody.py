@@ -24,7 +24,7 @@ class FrameProcessor:
     BODY_SHAPES = {'train': True, 'zero': 'all', 'estimated': False}
 
     def __init__(self, garment_name_list, ckpt_dir=None, dp_score=0.5, body_shape='estimated',
-                 keep_garments_on_gpu=False):
+                 keep_garments_on_gpu=False, keep_in_front='hands_head'):
         self.smpl_regressor = SMPL_Regressor(use_bev=True, fix_body=self.BODY_SHAPES[body_shape])
         self.viton_model = None
         self.compositor = None
@@ -59,6 +59,9 @@ class FrameProcessor:
 
         self.resident = False
         self.keep_garments_on_gpu = keep_garments_on_gpu
+        # body parts drawn in front of the garment; from behind, DensePose's head is the back of the head and hair,
+        # which can cut into a garment's back collar
+        self.keep_in_front = gpu_ops.KEEP_IN_FRONT[keep_in_front]
         self.load_all = Thread(target=self.load_all_models, args=())
         self.load_all.daemon = True
         self.load_all.start()
@@ -247,7 +250,7 @@ class FrameProcessor:
             garment, alpha = raw_out[:3].permute(1, 2, 0), raw_out[3]
         self._check_untouched(raw_image, 'inputs/generator/warp_back')
         with ft.stage('composite'):
-            occlusion = gpu_ops.hand_head_mask(iuv)
+            occlusion = gpu_ops.hand_head_mask(iuv, parts=self.keep_in_front)
             self.misses = 0
             self.last_good = (garment, alpha, occlusion, compositor)
             composed_img = self._compose(raw_image, garment, alpha, occlusion, compositor)
