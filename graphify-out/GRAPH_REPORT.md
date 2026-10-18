@@ -1,22 +1,22 @@
 # Graph Report - RTV  (2026-10-18)
 
 ## Corpus Check
-- 244 files · ~1,481,249 words
+- 244 files · ~1,481,466 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 13 file(s) not represented in the graph (top: .obj 6, .npz 3, (none) 2)
 
 ## Summary
-- 2563 nodes · 5695 edges · 160 communities (77 shown, 83 thin omitted)
+- 2566 nodes · 5705 edges · 152 communities (80 shown, 72 thin omitted)
 - Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 339 edges (avg confidence: 0.88)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `e6a94b83`
+- Built from commit: `5e331fdf`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- embedder.py
+- MatrixVisualizer
 - data/build.py
 - SMPLModel
 - process_video
@@ -25,23 +25,24 @@
 - DensePose Trainer & Eval
 - lvis.py
 - Demo & Garment Removal
-- video_keyframe_dataset.py
+- vis/base.py
 - Pixel Alignment & Landmarks
 - viton_upperbody.py
 - typing
 - numpy
-- torch
+- image_quantization.py
 - BEV Dataset Generation
 - pix2pixHD Base Model
-- DensePoseDataRelative
+- densepose/__init__.py
 - DensePoseChartLoss
+- MaskOrSegmentationLoss
 - DensePose Garment Utils
 - Garment Dataset & Options
 - Docs, Papers & Training Pipeline
 - Combined Data Loader
 - HRNet Backbone
 - upperbody_dataset_generation.py
-- Instances
+- create_extractor
 - pix2pixHD Interactive UI
 - ChartBasedAnnotationsAccumulator
 - apply_net Visualizers
@@ -55,13 +56,13 @@
 - rtl_demo.py
 - chart_output_to_chart_result.py
 - Inference-Based Loader
-- .forward
+- converters/__init__.py
 - Deeplab
 - coco.py
 - DensePoseCocoEval
 - Mesh
 - Random Affine Batch
-- pose_filter.py
+- test_time_augmentation.py
 - To Chart Result
 - build_data_sampler
 - viton_upperbody.py
@@ -69,13 +70,15 @@
 - Densepose Base
 - predictors/chart_confidence.py
 - Networks
+- DumpAction
 - Evaluator
 - Cycle Shape2Shape
-- MatrixVisualizer
+- densepose_results.py
+- densepose_data_points.py
 - SMPLModel
 - Utransformer Model
 - gl_utils.py
-- tensor_storage.py
+- DatasetType
 - frame_selector.py
 - Convlstm
 - densepose_outputs_vertex.py
@@ -84,58 +87,53 @@
 - HTML
 - ._lookup_converter
 - Evaluator 2
-- upperbody_inference.py
+- MultithreadVideoLoader
 - .__call__
-- densepose/__init__.py
+- object
 - decorate_predictor_output_class_with_confidences
 - DensePoseCheckpointer
 - Trainer
 - UpperBodyGarment
 - flat_renderer.py
-- DensePoseList
 - DensePoseResultExtractor
 - DensePoseROIHeads
 - Densepose Cse Base
 - Pix2PixHD_RGBA
-- Cse Confidence
+- DensePoseEmbeddingConfidencePredictorMixin
 - .__init__
 - Jin 00 White Bg
 - .__call__
-- test_time_augmentation.py
+- decorate_cse_predictor_output_class_with_confidences
 - Detectron2COCOEvaluatorAdapter
-- DensePoseChartPredictor
-- DensePoseGeneralizedRCNNWithTTA
+- predictors/chart_confidence.py
+- advect_img.py
 - embedder.py
 - Image List Dataset
 - V1Convx
-- predictors/__init__.py
+- DensePoseEmbeddingPredictor
 - extract_data_for_mask_loss_from_matches
 - AmputatedSMPL
 - Error Measure
 - DensePoseEmbeddingPredictorOutput
-- f
+- SMPL_Renderer
 - SingleProcessTensorStorage
 - Tensor Storage 3
 - Weak Perspective
 - DensePoseResultsVisualizerWithTexture
-- detectron2_data
 - structures/__init__.py
 - CfgNode
 - Pix2PixHD_RNN_RGBA
 - Screenshot
 - DensePoseConfidenceBasedSampler
 - Networks 2
-- InferenceAction
+- diff_tex_sampling
 - ImageResizeTransform
 - UVRenderer
 - Trans Smooth
 - FlatRenderer
-- OfflineFilter
-- create_extractor
 - Decoder
 - Large Video Loader
 - Han
-- .__init__
 - DensePoseChartPredictorOutput
 - Networks 3
 - Image2Video
@@ -153,8 +151,8 @@
 6. `SMPL_Regressor` - 27 edges
 7. `SMPLModel` - 25 edges
 8. `DensePoseDataRelative` - 24 edges
-9. `create_model()` - 23 edges
-10. `FrameProcessor` - 22 edges
+9. `FrameProcessor` - 23 edges
+10. `create_model()` - 23 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `Asymmetric Pose Guidance (30 paired poses, one arm raised vs both)` --conceptually_related_to--> `Step 1: Record 4K video of person wearing garment`  [INFERRED]
@@ -179,39 +177,43 @@
 - **Pose-guided low-barrier dataset capture** — assets_pose_guidance_symmetric_pose_guide, assets_pose_guidance_asymmetric_pose_guide, training_instructions_video_recording, readme_paper_low_barrier_dataset_collection [INFERRED 0.85]
 - **Real-time try-on display with garment selection including 'none' option** — assets_output_mirror_display_demo, assets_output_garment_selection_sidebar, assets_none_no_garment_icon [INFERRED 0.85]
 
-## Communities (160 total, 83 thin omitted)
+## Communities (152 total, 72 thin omitted)
+
+### Community 0 - "MatrixVisualizer"
+Cohesion: 0.16
+Nodes (5): MatrixVisualizer, DensePoseOutputsFineSegmentationVisualizer, DensePoseOutputsUVisualizer, DensePoseOutputsVisualizer, DensePoseOutputsVVisualizer
 
 ### Community 1 - "data/build.py"
-Cohesion: 0.08
-Nodes (19): _add_category_id_to_contiguous_id_maps_to_metadata(), _add_category_maps_to_metadata(), _add_category_whitelists_to_metadata(), build_combined_loader(), build_detection_test_loader(), build_detection_train_loader(), combine_detection_dataset_dicts(), _compute_num_images_per_worker() (+11 more)
+Cohesion: 0.09
+Nodes (14): _add_category_id_to_contiguous_id_maps_to_metadata(), _add_category_info_to_bootstrapping_metadata(), build_bootstrap_dataset(), build_combined_loader(), combine_detection_dataset_dicts(), _compute_num_images_per_worker(), _DatasetCategory, _map_category_id_to_contiguous_id() (+6 more)
 
 ### Community 3 - "process_video"
-Cohesion: 0.07
-Nodes (7): process_video(), CameraApp, VitonThread, FrameTiming, LatencyRecorder, _NullTiming, MultithreadVideoWriter
+Cohesion: 0.08
+Nodes (5): process_video(), CameraApp, VitonThread, LatencyRecorder, MultithreadVideoWriter
 
 ### Community 4 - "DensePoseExtractor"
-Cohesion: 0.14
-Nodes (5): FullBodySMPL, SMPL_Regressor, im2tensor(), FullBodyFrameProcessor, FullBodySeqFrameProcessor
+Cohesion: 0.08
+Nodes (10): CameraApp, VitonThread, FullBodySMPL, SMPL_Regressor, get_inverse_trans(), TemporalSmoothing, im2tensor(), FullBodyFrameProcessor (+2 more)
 
 ### Community 5 - "pix2pixHD Inference Models"
 Cohesion: 0.10
 Nodes (12): create_model(), InferenceModel_Align, Pix2PixHDModel_Align, InferenceModel, Pix2PixHD_DUAL_RGBA, InferenceModel_Inpaint, Pix2PixHDModel_Inpaint, InferenceModel_Mask (+4 more)
 
 ### Community 7 - "lvis.py"
-Cohesion: 0.11
-Nodes (16): _add_category_info_to_bootstrapping_metadata(), build_bootstrap_dataset(), _add_categories_metadata(), _combine_images_with_annotations(), _load_lvis_annotations(), load_lvis_json(), _maybe_add_bbox(), _maybe_add_densepose() (+8 more)
+Cohesion: 0.14
+Nodes (13): build_augmentation(), _add_categories_metadata(), _combine_images_with_annotations(), _load_lvis_annotations(), load_lvis_json(), _maybe_add_bbox(), _maybe_add_densepose(), _maybe_add_keypoints() (+5 more)
 
 ### Community 8 - "Demo & Garment Removal"
 Cohesion: 0.10
 Nodes (8): _blur(), _dilate(), _lut(), WornGarmentRemover, MultiHeadCrossAttention, MultiHeadSelfAttention, DualEncoderGenerator, ResnetBlock
 
-### Community 9 - "video_keyframe_dataset.py"
-Cohesion: 0.11
-Nodes (4): list_keyframes(), read_keyframe_helper_data(), read_keyframes(), VideoKeyframeDataset
+### Community 9 - "vis/base.py"
+Cohesion: 0.22
+Nodes (4): RectangleVisualizer, TextVisualizer, BoundingBoxVisualizer, ScoredBoundingBoxVisualizer
 
 ### Community 10 - "Pixel Alignment & Landmarks"
 Cohesion: 0.08
-Nodes (17): get_max_preds(), GetLandmarkCoord(), ImageCaption(), LandmarkAnnotation(), AABB, compute_iou(), get_threshold_mask(), JointAlignment (+9 more)
+Nodes (18): get_max_preds(), GetLandmarkCoord(), ImageCaption(), LandmarkAnnotation(), AABB, compute_iou(), get_threshold_mask(), joint_align() (+10 more)
 
 ### Community 11 - "viton_upperbody.py"
 Cohesion: 0.13
@@ -219,79 +221,87 @@ Nodes (20): erode(), naive_overlay(), naive_overlay_alpha(), blur_image(), blur_
 
 ### Community 12 - "typing"
 Cohesion: 0.11
-Nodes (5): PackedCseAnnotations, MaskLoss, MaskOrSegmentationLoss, SegmentationLoss, resample_data()
+Nodes (5): _create_pixel_dist_matrix(), PixToShapeCycleLoss, _sample_fg_pixels_multinomial(), _sample_fg_pixels_randperm(), PackedCseAnnotations
 
 ### Community 13 - "numpy"
-Cohesion: 0.09
-Nodes (18): dilate(), get_smooth_2d(), make_kernel(), multiple_random_dilation(), random_dilate(), get_laplacian_matrix(), ImageCaption(), ImageCaptionBottom() (+10 more)
+Cohesion: 0.07
+Nodes (20): dilate(), get_smooth_2d(), make_kernel(), multiple_random_dilation(), random_dilate(), get_laplacian_matrix(), ImageCaption(), ImageCaptionBottom() (+12 more)
 
-### Community 14 - "torch"
-Cohesion: 0.10
-Nodes (13): advect_numpy_image(), advect_numpy_image2(), advect_tensor_image(), mask_smooth(), diff_tex_sampling(), hsl2rgb_torch(), hsv2rgb_torch(), image_quantization() (+5 more)
+### Community 14 - "image_quantization.py"
+Cohesion: 0.36
+Nodes (8): hsl2rgb_torch(), hsv2rgb_torch(), image_quantization(), img2tensor(), measurement_quantization(), rgb2hsl_torch(), rgb2hsv_torch(), tensor2img()
 
 ### Community 15 - "BEV Dataset Generation"
 Cohesion: 0.13
 Nodes (4): MyBEV, projection2screencoord(), MyROMP, load_obj()
 
+### Community 17 - "densepose/__init__.py"
+Cohesion: 0.05
+Nodes (14): add_bootstrap_config(), add_dataset_category_config(), add_densepose_config(), add_densepose_head_config(), add_densepose_head_cse_config(), add_evaluation_config(), add_hrnet_config(), get_bootstrap_dataset_config() (+6 more)
+
 ### Community 18 - "DensePoseChartLoss"
 Cohesion: 0.10
 Nodes (4): DensePoseChartLoss, DensePoseChartWithConfidenceLoss, BilinearInterpolationHelper, _linear_interpolation_utilities()
+
+### Community 19 - "MaskOrSegmentationLoss"
+Cohesion: 0.10
+Nodes (3): MaskOrSegmentationLoss, SegmentationLoss, resample_data()
 
 ### Community 20 - "DensePose Garment Utils"
 Cohesion: 0.15
 Nodes (19): crop(), main(), main(), crop(), IUV2HandHeadMask(), IUV2Img(), IUV2SDP(), IUV2SSDP() (+11 more)
 
 ### Community 21 - "Garment Dataset & Options"
-Cohesion: 0.09
-Nodes (13): write_meta(), BaseOptions, TestOptions, TrainOptions, lcm(), main(), download_gdrive_file(), TemporalVarianceHeatmap (+5 more)
+Cohesion: 0.08
+Nodes (14): BaseOptions, make_pix2pix_model(), read_meta(), write_meta(), BaseOptions, TestOptions, TrainOptions, lcm() (+6 more)
 
 ### Community 22 - "Docs, Papers & Training Pipeline"
 Cohesion: 0.10
 Nodes (26): Asymmetric Pose Guidance (30 paired poses, one arm raised vs both), Symmetric Pose Guidance (16 predefined poses), Base-DensePose-RCNN-FPN config, DensePose COCO 2014 datasets, DensePoseROIHeads / DensePoseV1ConvXHead, GeneralizedRCNN with ResNet-FPN backbone, densepose_rcnn_R_50_FPN_s1x config (ResNet-50, 130k iters), detectron2 (+18 more)
 
 ### Community 23 - "Combined Data Loader"
-Cohesion: 0.20
-Nodes (7): register_dataset(), DatasetType, MeshInfo, register_mesh(), register_meshes(), is_relative_local_path(), maybe_prepend_base_path()
+Cohesion: 0.26
+Nodes (6): register_dataset(), MeshInfo, register_mesh(), register_meshes(), is_relative_local_path(), maybe_prepend_base_path()
 
 ### Community 24 - "HRNet Backbone"
 Cohesion: 0.06
 Nodes (8): build_hrfpn_backbone(), HRFPN, BasicBlock, Bottleneck, build_pose_hrnet_backbone(), conv3x3(), HighResolutionModule, PoseHigherResolutionNet
 
 ### Community 25 - "upperbody_dataset_generation.py"
-Cohesion: 0.21
+Cohesion: 0.22
 Nodes (7): BaseOptions, gen_dataset(), make_video_loader(), process_video(), UpperBodySMPL, check_type(), get_file_path_list()
 
-### Community 26 - "Instances"
-Cohesion: 0.14
-Nodes (6): BoundingBoxExtractor, extract_boxes_xywh_from_instances(), extract_scores_from_instances(), NmsFilteredExtractor, ScoredBoundingBoxExtractor, ScoreThresholdedExtractor
+### Community 26 - "create_extractor"
+Cohesion: 0.20
+Nodes (4): CompoundExtractor, create_extractor(), extract_boxes_xywh_from_instances(), extract_scores_from_instances()
 
 ### Community 27 - "pix2pixHD Interactive UI"
 Cohesion: 0.14
 Nodes (6): UIModel, Colorize, labelcolormap(), tensor2im(), tensor2label(), uint82bin()
 
 ### Community 28 - "ChartBasedAnnotationsAccumulator"
-Cohesion: 0.11
-Nodes (4): AnnotationsAccumulator, ChartBasedAnnotationsAccumulator, extract_packed_annotations_from_matches(), PackedChartBasedAnnotations
+Cohesion: 0.10
+Nodes (5): AnnotationsAccumulator, ChartBasedAnnotationsAccumulator, extract_packed_annotations_from_matches(), PackedChartBasedAnnotations, sample_random_indices()
 
 ### Community 29 - "apply_net Visualizers"
-Cohesion: 0.16
-Nodes (4): create_argument_parser(), main(), dump_esample.sh script, example.sh script
+Cohesion: 0.14
+Nodes (5): create_argument_parser(), main(), verbosity_to_level(), dump_esample.sh script, example.sh script
 
 ### Community 30 - "DensePose DB Helper"
 Cohesion: 0.12
 Nodes (5): AllEntrySelector, EntrySelector, FieldEntrySelector, _FieldEntryRangePredicate, _FieldEntryValuePredicate
 
 ### Community 31 - "DensePoseResultsVisualizer"
-Cohesion: 0.10
-Nodes (10): DensePoseMaskedColormapResultsVisualizer, DensePoseResultsCustomContourVisualizer, DensePoseResultsFineSegmentationVisualizer, DensePoseResultsMplContourVisualizer, DensePoseResultsUVisualizer, DensePoseResultsVisualizer, DensePoseResultsVVisualizer, _extract_i_from_iuvarr() (+2 more)
+Cohesion: 0.14
+Nodes (4): DensePoseResultsCustomContourVisualizer, DensePoseResultsMplContourVisualizer, DensePoseResultsVisualizer, _extract_v_from_iuvarr()
 
 ### Community 32 - "ASAPNet Model"
 Cohesion: 0.12
 Nodes (5): ASAPNetModel, loss_filter(), InferenceModel, ASAPNet_RGBA, InferenceModel
 
 ### Community 33 - "apply_net Inference Action"
-Cohesion: 0.14
-Nodes (4): DumpAction, register_action(), ShowAction, CompoundVisualizer
+Cohesion: 0.15
+Nodes (3): InferenceAction, ShowAction, CompoundVisualizer
 
 ### Community 34 - "DensePose Modeling Build"
 Cohesion: 0.14
@@ -307,7 +317,7 @@ Nodes (7): define_D(), define_G(), Encoder, GANLoss, get_norm_layer(), VGGLoss, 
 
 ### Community 37 - "rtl_demo.py"
 Cohesion: 0.09
-Nodes (10): CameraApp, VitonThread, get_camera_name_linux(), list_available_cameras(), main(), compose_debug_panel(), _tile(), require_cuda() (+2 more)
+Nodes (12): get_camera_name_linux(), list_available_cameras(), main(), compose_debug_panel(), save_debug(), _tile(), crop2_169(), cuda_sync() (+4 more)
 
 ### Community 38 - "chart_output_to_chart_result.py"
 Cohesion: 0.20
@@ -317,16 +327,16 @@ Nodes (6): make_int_box(), densepose_chart_predictor_output_to_result(), densepo
 Cohesion: 0.12
 Nodes (6): build_data_filter(), build_inference_based_loader(), build_inference_based_loaders(), _grouper(), InferenceBasedLoader, ScoreBasedFilter
 
-### Community 40 - ".forward"
-Cohesion: 0.18
-Nodes (4): _create_pixel_dist_matrix(), PixToShapeCycleLoss, _sample_fg_pixels_multinomial(), _sample_fg_pixels_randperm()
+### Community 40 - "converters/__init__.py"
+Cohesion: 0.27
+Nodes (5): BaseConverter, HFlipConverter, ToChartResultConverter, ToChartResultConverterWithConfidences, ToMaskConverter
 
 ### Community 41 - "Deeplab"
 Cohesion: 0.11
 Nodes (6): ASPP, ASPPConv, ASPPPooling, DensePoseDeepLabHead, NONLocalBlock2D, _NonLocalBlockND
 
 ### Community 42 - "coco.py"
-Cohesion: 0.17
+Cohesion: 0.16
 Nodes (15): _add_categories_metadata(), CocoDatasetInfo, _combine_images_with_annotations(), create_video_frame_mapping(), get_metadata(), _load_coco_annotations(), load_coco_json(), _maybe_add_bbox() (+7 more)
 
 ### Community 43 - "DensePoseCocoEval"
@@ -334,144 +344,144 @@ Cohesion: 0.05
 Nodes (10): DensePoseCocoEval, _checkIgnore(), _summarize(), _summarizeDets(), _summarizeKps(), _summarizeUvs(), _summarizeUvsOld(), DensePoseDataMode (+2 more)
 
 ### Community 44 - "Mesh"
-Cohesion: 0.18
-Nodes (5): load_mesh_auxiliary_data(), load_mesh_data(), load_mesh_symmetry(), _maybe_copy_to_device(), Mesh
+Cohesion: 0.12
+Nodes (9): create_mesh(), load_mesh_auxiliary_data(), load_mesh_data(), load_mesh_symmetry(), _maybe_copy_to_device(), Mesh, get_texture_atlases(), get_xyz_vertex_embedding() (+1 more)
 
 ### Community 45 - "Random Affine Batch"
 Cohesion: 0.17
 Nodes (5): compute_inv_trans(), compute_trans(), RandomAffineBatch, RandomAffineBatchNumpy, RandomAffineMatrix
 
-### Community 46 - "pose_filter.py"
-Cohesion: 0.18
-Nodes (3): Average, PoseFilter, slerp()
+### Community 46 - "test_time_augmentation.py"
+Cohesion: 0.06
+Nodes (7): DensePoseGeneralizedRCNNWithTTA, _inverse_rotation(), rotate_box_inverse(), Average, OfflineFilter, PoseFilter, slerp()
 
 ### Community 48 - "build_data_sampler"
 Cohesion: 0.10
 Nodes (7): build_data_sampler(), DensePoseCSEConfidenceBasedSampler, DensePoseCSEUniformSampler, DensePoseUniformSampler, MaskFromDensePoseSampler, PredictionToGroundTruthSampler, _Sampler
 
 ### Community 49 - "viton_upperbody.py"
-Cohesion: 0.11
-Nodes (12): GarmentCompositor, make_pix2pix_model(), read_meta(), get_inverse_trans(), TemporalSmoothing, find_module(), module_device(), report_devices() (+4 more)
+Cohesion: 0.12
+Nodes (8): GarmentCompositor, find_module(), module_device(), report_devices(), require_cuda(), composite_inputs(), FrameProcessor, hand_head_mask()
 
 ### Community 50 - "converters/__init__.py"
-Cohesion: 0.12
-Nodes (10): BaseConverter, HFlipConverter, predictor_output_with_coarse_segm_to_mask(), predictor_output_with_fine_and_coarse_segm_to_mask(), resample_coarse_segm_tensor_to_bbox(), resample_fine_and_coarse_segm_tensors_to_bbox(), resample_fine_and_coarse_segm_to_bbox(), ToChartResultConverter (+2 more)
+Cohesion: 0.18
+Nodes (5): predictor_output_with_coarse_segm_to_mask(), predictor_output_with_fine_and_coarse_segm_to_mask(), resample_coarse_segm_tensor_to_bbox(), resample_fine_and_coarse_segm_tensors_to_bbox(), resample_fine_and_coarse_segm_to_bbox()
 
 ### Community 52 - "predictors/chart_confidence.py"
-Cohesion: 0.16
-Nodes (5): DensePoseConfidenceModelConfig, DensePoseSegmConfidenceConfig, DensePoseUVConfidenceConfig, DensePoseUVConfidenceType, DensePoseChartConfidencePredictorMixin
+Cohesion: 0.15
+Nodes (4): DensePoseConfidenceModelConfig, DensePoseSegmConfidenceConfig, DensePoseUVConfidenceConfig, DensePoseUVConfidenceType
 
 ### Community 53 - "Networks"
 Cohesion: 0.14
 Nodes (4): GlobalGenerator, GlobalGenerator_Mask, LocalEnhancer, ResnetBlock
 
-### Community 55 - "Evaluator"
-Cohesion: 0.17
-Nodes (3): maybe_filter_and_map_categories_cocoapi(), DensePoseCOCOEvaluator, MeshAlignmentEvaluator
+### Community 54 - "DumpAction"
+Cohesion: 0.15
+Nodes (4): Action, DumpAction, register_action(), get_palette()
 
-### Community 58 - "MatrixVisualizer"
-Cohesion: 0.06
-Nodes (18): MatrixVisualizer, PointsVisualizer, RectangleVisualizer, TextVisualizer, BoundingBoxVisualizer, ScoredBoundingBoxVisualizer, _densepose_data_i_for_cmap(), _densepose_data_u_for_cmap() (+10 more)
+### Community 55 - "Evaluator"
+Cohesion: 0.12
+Nodes (5): maybe_filter_and_map_categories_cocoapi(), DensePoseCOCOEvaluator, MeshAlignmentEvaluator, normalized_coords_transform(), f()
+
+### Community 57 - "densepose_results.py"
+Cohesion: 0.25
+Nodes (6): DensePoseMaskedColormapResultsVisualizer, DensePoseResultsFineSegmentationVisualizer, DensePoseResultsUVisualizer, DensePoseResultsVVisualizer, _extract_i_from_iuvarr(), _extract_u_from_iuvarr()
+
+### Community 58 - "densepose_data_points.py"
+Cohesion: 0.15
+Nodes (9): PointsVisualizer, _densepose_data_i_for_cmap(), _densepose_data_u_for_cmap(), _densepose_data_v_for_cmap(), DensePoseDataCoarseSegmentationVisualizer, DensePoseDataPointsIVisualizer, DensePoseDataPointsUVisualizer, DensePoseDataPointsVisualizer (+1 more)
 
 ### Community 61 - "gl_utils.py"
 Cohesion: 0.13
 Nodes (4): _create_glfw_context(), create_initialized_headless_egl_display(), create_opengl_context(), init_frame_buffer()
 
-### Community 62 - "tensor_storage.py"
-Cohesion: 0.24
-Nodes (6): _file_storage_gather(), MultiProcessFileTensorStorage, MultiProcessRamTensorStorage, MultiProcessTensorStorage, _ram_storage_gather(), storage_gather()
-
 ### Community 63 - "frame_selector.py"
-Cohesion: 0.11
-Nodes (6): build_frame_selector(), FirstKFramesSelector, FrameSelectionStrategy, LastKFramesSelector, RandomKFramesSelector, video_list_from_file()
+Cohesion: 0.06
+Nodes (10): build_frame_selector(), FirstKFramesSelector, FrameSelectionStrategy, LastKFramesSelector, RandomKFramesSelector, list_keyframes(), read_keyframe_helper_data(), read_keyframes() (+2 more)
 
 ### Community 64 - "Convlstm"
 Cohesion: 0.20
 Nodes (3): ConvLSTM, ConvLSTMCell, RNNGenerator
 
-### Community 65 - "densepose_outputs_vertex.py"
-Cohesion: 0.14
-Nodes (6): create_mesh(), DensePoseOutputsTextureVisualizer, DensePoseOutputsVertexVisualizer, get_texture_atlases(), get_xyz_vertex_embedding(), get_texture_atlas()
-
 ### Community 70 - "Evaluator 2"
 Cohesion: 0.21
 Nodes (6): densepose_chart_predictions_to_storage_dict(), densepose_cse_predictions_to_dict(), _derive_results_from_coco_eval(), _evaluate_predictions_on_coco(), _get_densepose_metrics(), prediction_to_dict()
 
-### Community 71 - "upperbody_inference.py"
-Cohesion: 0.10
-Nodes (6): BaseOptions, cuda_sync(), now(), MultithreadVideoLoader, compute_confidence(), improve_masks_with_optical_flow()
+### Community 71 - "MultithreadVideoLoader"
+Cohesion: 0.22
+Nodes (3): MultithreadVideoLoader, compute_confidence(), improve_masks_with_optical_flow()
 
 ### Community 72 - ".__call__"
 Cohesion: 0.13
 Nodes (4): get_closest_vertices_mask_from_ES(), normalize_embeddings(), squared_euclidean_distance_matrix(), EmbeddingLoss
 
-### Community 73 - "densepose/__init__.py"
-Cohesion: 0.27
-Nodes (9): add_bootstrap_config(), add_dataset_category_config(), add_densepose_config(), add_densepose_head_config(), add_densepose_head_cse_config(), add_evaluation_config(), add_hrnet_config(), get_bootstrap_dataset_config() (+1 more)
+### Community 73 - "object"
+Cohesion: 0.18
+Nodes (4): BoundingBoxExtractor, NmsFilteredExtractor, ScoredBoundingBoxExtractor, ScoreThresholdedExtractor
 
 ### Community 74 - "decorate_predictor_output_class_with_confidences"
 Cohesion: 0.18
 Nodes (4): decorate_predictor_output_class_with_confidences(), PredictorOutput_getitem(), PredictorOutput_to(), slice_if_not_none()
 
 ### Community 77 - "UpperBodyGarment"
-Cohesion: 0.18
-Nodes (4): get_random_affine_params(), RandomAffineMatrix, UpperBodyGarment, fill_from_interior()
+Cohesion: 0.22
+Nodes (3): get_random_affine_params(), RandomAffineMatrix, UpperBodyGarment
 
 ### Community 78 - "flat_renderer.py"
 Cohesion: 0.27
 Nodes (5): destroy_opengl_context(), generate_vao(), read_texture(), render(), set_shader_params()
 
 ### Community 80 - "DensePoseResultExtractor"
-Cohesion: 0.25
+Cohesion: 0.24
 Nodes (3): DensePoseExtractor, DensePoseOutputsExtractor, DensePoseResultExtractor
 
 ### Community 83 - "Pix2PixHD_RGBA"
 Cohesion: 0.17
 Nodes (3): loss_filter(), InferenceModel, Pix2PixHD_RGBA
 
-### Community 84 - "Cse Confidence"
-Cohesion: 0.18
-Nodes (4): decorate_cse_predictor_output_class_with_confidences(), PredictorOutput_getitem(), PredictorOutput_to(), slice_if_not_none()
-
 ### Community 86 - "Jin 00 White Bg"
 Cohesion: 0.35
 Nodes (11): Jin Garment Series (jin_00..jin_26, 27 images), Upper-Body Garment Category, White-Background Garment Input Convention (headless front-view cutout, 1024x1024), jin_07 Light-Blue Pussy-Bow Blouse, jin_13 White Polka-Dot Short-Sleeve Shirt, Knit Sweater, Collared Button-Up Shirt / Blouse, lab_00 White Graphic Tee ('Full-time' print) (+3 more)
 
-### Community 88 - "test_time_augmentation.py"
-Cohesion: 0.18
-Nodes (3): DensePoseDatasetMapperTTA, _inverse_rotation(), rotate_box_inverse()
+### Community 88 - "decorate_cse_predictor_output_class_with_confidences"
+Cohesion: 0.40
+Nodes (4): decorate_cse_predictor_output_class_with_confidences(), PredictorOutput_getitem(), PredictorOutput_to(), slice_if_not_none()
 
 ### Community 89 - "Detectron2COCOEvaluatorAdapter"
 Cohesion: 0.24
 Nodes (4): get_contiguous_id_to_category_id_map(), maybe_filter_categories_cocoapi(), Detectron2COCOEvaluatorAdapter, _maybe_add_iscrowd_annotations()
 
+### Community 90 - "predictors/chart_confidence.py"
+Cohesion: 0.14
+Nodes (4): DensePoseChartConfidencePredictorMixin, DensePoseChartPredictor, DensePoseChartWithConfidencePredictor, initialize_module_params()
+
+### Community 91 - "advect_img.py"
+Cohesion: 0.53
+Nodes (4): advect_numpy_image(), advect_numpy_image2(), advect_tensor_image(), mask_smooth()
+
 ### Community 92 - "embedder.py"
-Cohesion: 0.24
-Nodes (4): create_embedder(), EmbedderType, VertexDirectEmbedder, VertexFeatureEmbedder
+Cohesion: 0.07
+Nodes (5): create_embedder(), Embedder, EmbedderType, VertexDirectEmbedder, VertexFeatureEmbedder
 
-### Community 95 - "predictors/__init__.py"
-Cohesion: 0.11
-Nodes (4): DensePoseEmbeddingConfidencePredictorMixin, DensePoseEmbeddingPredictor, DensePoseEmbeddingWithConfidencePredictor, initialize_module_params()
+### Community 96 - "extract_data_for_mask_loss_from_matches"
+Cohesion: 0.14
+Nodes (3): DataForMaskLoss, extract_data_for_mask_loss_from_matches(), MaskLoss
 
-### Community 100 - "f"
-Cohesion: 0.24
-Nodes (3): normalized_coords_transform(), f(), SMPL_Renderer
+### Community 101 - "SingleProcessTensorStorage"
+Cohesion: 0.16
+Nodes (6): _file_storage_gather(), MultiProcessFileTensorStorage, MultiProcessTensorStorage, SingleProcessFileTensorStorage, SingleProcessTensorStorage, storage_gather()
 
 ### Community 102 - "Tensor Storage 3"
-Cohesion: 0.22
-Nodes (6): build_densepose_evaluator_storage(), _calculate_record_field_size_b(), _calculate_record_field_sizes_b(), _calculate_record_size_b(), SingleProcessRamTensorStorage, SizeData
-
-### Community 106 - "detectron2_data"
-Cohesion: 0.25
-Nodes (3): build_augmentation(), load_for_dataset(), load_from_cfg()
+Cohesion: 0.18
+Nodes (8): build_densepose_evaluator_storage(), _calculate_record_field_size_b(), _calculate_record_field_sizes_b(), _calculate_record_size_b(), MultiProcessRamTensorStorage, _ram_storage_gather(), SingleProcessRamTensorStorage, SizeData
 
 ### Community 107 - "structures/__init__.py"
 Cohesion: 0.13
 Nodes (7): compress_quantized_densepose_chart_result(), decompress_compressed_densepose_chart_result(), DensePoseChartResult, DensePoseChartResultCompressed, DensePoseChartResultQuantized, DensePoseChartResultWithConfidences, quantize_densepose_chart_result()
 
 ### Community 108 - "CfgNode"
-Cohesion: 0.12
-Nodes (13): _BootstrapDatasetFactoryCatalog, build_transform(), build_video_list_dataset(), _get_test_keep_instance_predicate(), _get_train_keep_instance_predicate(), _maybe_create_densepose_keep_instance_predicate(), _maybe_create_general_keep_instance_predicate(), general_keep_instance_predicate() (+5 more)
+Cohesion: 0.10
+Nodes (20): _add_category_maps_to_metadata(), _add_category_whitelists_to_metadata(), build_detection_test_loader(), build_detection_train_loader(), build_transform(), build_video_list_dataset(), _get_test_keep_instance_predicate(), _get_train_keep_instance_predicate() (+12 more)
 
 ### Community 109 - "Pix2PixHD_RNN_RGBA"
 Cohesion: 0.15
@@ -495,24 +505,24 @@ Nodes (5): densepose_chart_predictor_output_hflip(), _flip_iuv_semantics_tensor(
 
 ## Knowledge Gaps
 - **17 isolated node(s):** `Real-Time Per-Garment Virtual Try-On with Temporal Consistency for Loose-Fitting Garments (Wu, Shen, Igarashi, CGF 2025, arXiv 2506.12348)`, `SAM 2.1 Hiera Large checkpoint (cuda/bfloat16)`, `board_300x300.png: Random Color Noise Pattern Board`, `amputated_smpl_m_zero_uv.png: Amputated SMPL Upper-body UV Layout`, `Full-body Garment Replacement (traditional Hanfu over casual outfit)` (+12 more)
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 851 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **83 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 852 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **72 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `DensePoseCocoEval` connect `DensePoseCocoEval` to `converters/__init__.py`, `Evaluator 2`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
 - **What connects `Real-Time Per-Garment Virtual Try-On with Temporal Consistency for Loose-Fitting Garments (Wu, Shen, Igarashi, CGF 2025, arXiv 2506.12348)`, `SAM 2.1 Hiera Large checkpoint (cuda/bfloat16)`, `board_300x300.png: Random Color Noise Pattern Board` to the rest of the system?**
   _17 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `data/build.py` be split into smaller, more focused modules?**
-  _Cohesion score 0.080338266384778 - nodes in this community are weakly interconnected._
-- **Why does `DensePoseChartLoss` connect `DensePoseChartLoss` to `ChartBasedAnnotationsAccumulator`, `typing`, `.__init__`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+  _Cohesion score 0.08571428571428572 - nodes in this community are weakly interconnected._
+- **Why does `DensePoseChartLoss` connect `DensePoseChartLoss` to `MaskOrSegmentationLoss`, `ChartBasedAnnotationsAccumulator`, `.__init__`?**
+  _High betweenness centrality (0.029) - this node is a cross-community bridge._
 - **Should `SMPLModel` be split into smaller, more focused modules?**
   _Cohesion score 0.11182795698924732 - nodes in this community are weakly interconnected._
 - **Why does `SMPLModel` connect `SMPLModel` to `upperbody_dataset_generation.py`, `DensePoseExtractor`, `BEV Dataset Generation`?**
-  _High betweenness centrality (0.024) - this node is a cross-community bridge._
+  _High betweenness centrality (0.023) - this node is a cross-community bridge._
 
 ### Low-confidence Hints
 _AMBIGUOUS edges — the extractor was unsure. Verify before acting on these._
