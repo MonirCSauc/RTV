@@ -1,15 +1,15 @@
 import argparse
 import os
 
-os.environ["PYOPENGL_PLATFORM"] = "egl"
+if os.name != "nt":
+    os.environ["PYOPENGL_PLATFORM"] = "egl"
 
 import numpy as np
-import OpenGL.EGL as egl
 from OpenGL.GL import *
 from OpenGL.GL import shaders
 from PIL import Image
 
-from OffscreenRenderer.gl_utils import create_opengl_context, init_frame_buffer
+from OffscreenRenderer.gl_utils import create_opengl_context, destroy_opengl_context, init_frame_buffer
 
 from OffscreenRenderer.off_screen_render import VertextAttribType, IndexType, generate_vao, set_shader_params, render, \
     read_texture
@@ -54,8 +54,7 @@ class FlatRenderer:
 
     def __del__(self):
         #glDeleteFramebuffers(1, self.render_frame_object)
-        egl.eglDestroySurface(self.display, self.egl_surf)
-        egl.eglDestroyContext(self.display, self.opengl_context)
+        destroy_opengl_context(self.display, self.egl_surf, self.opengl_context)
 
     def render(self, vertex_positions, vertex_texcoord, face_indices, matrix_model=None, matrix_view=None,
                matrix_proj=None):

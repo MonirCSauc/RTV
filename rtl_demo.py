@@ -1,5 +1,6 @@
 import sys
 import os
+import threading
 
 #sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 import cv2
@@ -10,7 +11,7 @@ from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal, QSize, QUrl, QEvent, Q
 # from PyQt5 import QtMultimedia
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-from util.image_warp import crop2_169, resize_img
+from util.image_warp import crop2_169
 
 from VITON.viton_upperbody import FrameProcessor
 from util.camera_util import list_available_cameras
@@ -18,6 +19,7 @@ from util.camera_util import list_available_cameras
 
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage)
+    ROTATIONS = {'90': cv2.ROTATE_90_CLOCKWISE, '180': cv2.ROTATE_180, '270': cv2.ROTATE_90_COUNTERCLOCKWISE}
 
     def __init__(self,garment_id_list):
         super().__init__()
@@ -33,30 +35,69 @@ class VitonThread(QThread):
         self.frame_processor.set_target_garment(id)
 
     def get_camera(self):
-        cap = cv2.VideoCapture(1)
+        # RTV_CAMERA: camera index or stream URL (e.g. http://192.168.1.5:4747/video for DroidCam)
+        src = os.environ.get('RTV_CAMERA')
+        if src:
+            return cv2.VideoCapture(int(src) if src.isdigit() else src)
+        # Try each index/backend and keep the first one that actually delivers a frame
+        # (isOpened() alone is true for virtual/busy cameras that never produce video).
+        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY] if sys.platform == 'win32' else [cv2.CAP_ANY]
+        for index in (1, 0, 2, 3):
+            for backend in backends:
+                cap = cv2.VideoCapture(index, backend)
+                if cap.isOpened():
+                    for _ in range(10):
+                        if cap.read()[0]:
+                            print(f"Using camera {index} (backend {backend})")
+                            return cap
+                cap.release()
+        print("No working camera found. Set RTV_CAMERA to an index or stream URL.")
+        return cv2.VideoCapture()
 
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(0)
-        return cap
-
-    def run(self):
+    def _grab_latest(self):
+        # Drain the stream continuously so processing never works on stale, buffered frames
         while self.running:
             ret, frame = self.cap.read()
-
             if ret:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                ## ichao: remove flip (Nov 13, 2024)
-                frame=cv2.flip(frame, 1)
-                frame=resize_img(frame,max_height=1024)
-                #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                frame=crop2_169(frame)
-                frame = self.frame_processor(frame)
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                height, width, channel = frame.shape
-                step = channel * width
-                q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888)
-                self.frameCaptured.emit(q_img)
+                self._latest = frame
+            else:
+                self.msleep(10)
 
+    def run(self):
+        self._latest = None
+        threading.Thread(target=self._grab_latest, daemon=True).start()
+        # RTV_HEIGHT: height the try-on is composited at. Frames are scaled up to it so the garment stays
+        # sharp on a low-resolution camera; lower it for more speed.
+        max_h = int(os.environ.get('RTV_HEIGHT', '1024'))
+        max_w = max_h * 9 // 16
+        while self.running:
+            frame, self._latest = self._latest, None
+            if frame is None:
+                self.msleep(2)
+                continue
+            # RTV_ROTATE: clockwise rotation in degrees (0/90/180/270), default 90 for a portrait-mounted webcam
+            rot = self.ROTATIONS.get(os.environ.get('RTV_ROTATE', '90'))
+            if rot is not None:
+                frame = cv2.rotate(frame, rot)
+            ## ichao: remove flip (Nov 13, 2024)
+            frame=cv2.flip(frame, 1)
+            frame=crop2_169(frame)
+            frame=cv2.resize(frame, (max_w, max_h),
+                             interpolation=cv2.INTER_CUBIC if frame.shape[0] < max_h else cv2.INTER_AREA)
+            frame = self.frame_processor(frame)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            height, width, channel = frame.shape
+            step = channel * width
+            # copy: the QImage is delivered to the GUI thread later, after this frame's buffer is gone
+            q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888).copy()
+            self.frameCaptured.emit(q_img)
+
+    def reset_background(self):
+        self.frame_processor.reset_background()
+
+    def toggle_remove_worn(self):
+        self.frame_processor.remove_worn = not self.frame_processor.remove_worn
+        print("Remove worn garment:", self.frame_processor.remove_worn)
 
     def stop(self):
         self.running = False
@@ -171,6 +212,11 @@ class CameraApp(QMainWindow):
              self.list_widget.setCurrentRow(4)
         elif e.key() == Qt.Key_5:
              self.list_widget.setCurrentRow(5)
+        elif e.key() == Qt.Key_B:
+            # relearn the background plate used to erase the worn garment
+            self.viton_thread.reset_background()
+        elif e.key() == Qt.Key_R:
+            self.viton_thread.toggle_remove_worn()
         elif e.key() == Qt.Key_Q or e.key() == Qt.Key_Escape:
             print("Exiting application...")
             self.close()  # Triggers closeEvent

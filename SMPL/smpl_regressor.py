@@ -61,6 +61,9 @@ class SMPL_Regressor:
         settings = bev.main.default_settings
         settings.mode = 'video'
         bev_model = MyBEV(settings,fix_body=fix_body)
+        if isinstance(bev_model.model, torch.nn.DataParallel):
+            # single GPU: the wrapper only adds per-frame overhead
+            bev_model.model = bev_model.model.module
         return bev_model
 
     def create_romp_model(self):

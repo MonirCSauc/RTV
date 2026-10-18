@@ -1,3 +1,4 @@
+import torch
 from bev import BEV
 from bev.post_parser import denormalize_cam_params_to_trans, suppressing_redundant_prediction_via_projection, remove_outlier, body_mesh_projection2image
 
@@ -6,6 +7,7 @@ class MyBEV(BEV):
         super(MyBEV, self).__init__(settings)
         self.fix_body = fix_body
 
+    @torch.no_grad()
     def forward(self, image, signal_ID=0, **kwargs):
 
         outputs = self.process_normal_image(image, signal_ID)

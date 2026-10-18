@@ -2,9 +2,14 @@ from typing import Tuple
 import ctypes
 
 import numpy as np
-import OpenGL.EGL as egl
-from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
-from OpenGL.EGL.EXT.device_base import egl_get_devices
+import os
+
+if os.name != "nt":
+    import OpenGL.EGL as egl
+    from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
+    from OpenGL.EGL.EXT.device_base import egl_get_devices
+else:
+    import glfw
 from OpenGL import error
 from OpenGL.GL import *
 
@@ -30,6 +35,28 @@ def create_initialized_headless_egl_display():
     return egl.EGL_NO_DISPLAY
 
 
+def _create_glfw_context(surface_size: Tuple[int, int]):
+    """Windows fallback: headless EGL is unavailable, so use a hidden GLFW window.
+    """
+    if not glfw.init():
+        raise RuntimeError('Cannot initialize GLFW.')
+    glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+    width, height = surface_size
+    window = glfw.create_window(width, height, "offscreen", None, None)
+    if not window:
+        raise RuntimeError('Cannot create a hidden GLFW window for the OpenGL context.')
+    glfw.make_context_current(window)
+    return None, window, window
+
+
+def destroy_opengl_context(display, surface, context):
+    if os.name == "nt":
+        glfw.destroy_window(surface)
+    else:
+        egl.eglDestroySurface(display, surface)
+        egl.eglDestroyContext(display, context)
+
+
 def create_opengl_context(surface_size: Tuple[int, int]):
     """Create offscreen OpenGL context and make it current.
 
@@ -41,6 +68,9 @@ def create_opengl_context(surface_size: Tuple[int, int]):
         surface_size: (width, height), size of the offscreen rendering surface.
 
     """
+    if os.name == "nt":
+        return _create_glfw_context(surface_size)
+
     egl_display = create_initialized_headless_egl_display()
 
     if egl_display == egl.EGL_NO_DISPLAY:

@@ -71,13 +71,13 @@ def get_palette(num_cls):
     return palette
 
 class DensePoseExtractor(DumpAction):
-    def __init__(self):
+    def __init__(self, opts=None):
         self.parser = argparse.ArgumentParser()
 
         self.dp_model = DumpAction()
         #self.dp_model.add_arguments(self.parser)
         self.args = self.parser.parse_args([])
-        opts = []
+        opts = opts or []  # detectron2 'KEY', VALUE overrides
         self.cfg = './model/DensePose/configs/densepose_rcnn_R_50_FPN_s1x.yaml'
         self.model = 'https://dl.fbaipublicfiles.com/densepose/densepose_rcnn_R_50_FPN_s1x/165712039/model_final_162be9.pkl'
         cfg = self.dp_model.setup_config(self.cfg, self.model, self.args, opts)
@@ -231,6 +231,25 @@ class DensePoseExtractor(DumpAction):
         #print(labels.max())
 
         return IUV
+
+    def get_IUV_tensor(self, img):
+        # Same result as get_IUV for a BGR image, but kept on the GPU: uint8 tensor (H, W, 3) or None
+        with torch.no_grad():
+            outputs = self.predictor(img)["instances"]
+        if len(outputs) == 0 or not outputs.has("pred_densepose"):
+            return None
+        boxes = outputs.pred_boxes.tensor
+        max_id = int(((boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1])).argmax())
+        with torch.no_grad():
+            densepose = DensePoseResultExtractor()(outputs[[max_id]])[0][0]
+        x_min, y_min = [int(round(c)) for c in boxes[max_id, :2].tolist()]
+        labels, uv = densepose.labels, densepose.uv
+        mask_h, mask_w = labels.shape
+        raw_h, raw_w, _ = img.shape
+        output_tensor = torch.zeros(3, raw_h, raw_w, device=labels.device)
+        output_tensor[0, y_min:y_min + mask_h, x_min:x_min + mask_w] = labels.float()
+        output_tensor[1:, y_min:y_min + mask_h, x_min:x_min + mask_w] = uv * 255.0
+        return output_tensor.permute(1, 2, 0).to(torch.uint8)
 
     def get_max_index(self, boxes):
         areas=[]
