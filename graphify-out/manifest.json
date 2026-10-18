@@ -12,10 +12,10 @@
     "semantic_hash": "d8d753a03599929e2e71009ccd3fb3ff"
   },
   "DatasetGeneration/upperbody_dataset_generation.py": {
-    "mtime": 1791213394.2155554,
-    "seen": 1792314494.2179446,
-    "ast_hash": "8c9231557721b36f68a056849ca5d537",
-    "semantic_hash": "8c9231557721b36f68a056849ca5d537"
+    "mtime": 1792323683.4044855,
+    "seen": 1792323777.303432,
+    "ast_hash": "640235a16eca2fbcc91b982ca1eba744",
+    "semantic_hash": ""
   },
   "Datasets/__init__.py": {
     "mtime": 1791213394.2155554,
@@ -30,10 +30,10 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "Datasets/upperbody_garment/upperbody_garment.py": {
-    "mtime": 1791213394.2165527,
-    "seen": 1792314494.2179446,
-    "ast_hash": "83b39adfda80470b6ea835bb3c95676e",
-    "semantic_hash": "83b39adfda80470b6ea835bb3c95676e"
+    "mtime": 1792323683.4044855,
+    "seen": 1792323777.303432,
+    "ast_hash": "f2393e6462739dd6fa3a99ce5dd70294",
+    "semantic_hash": ""
   },
   "Inference/__init__.py": {
     "mtime": 1791213394.2165527,
@@ -42,16 +42,16 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "Inference/base_options.py": {
-    "mtime": 1791213394.2165527,
-    "seen": 1792314494.2179446,
-    "ast_hash": "24ff33ac6d2ace05ebd10543d37e29bd",
-    "semantic_hash": "24ff33ac6d2ace05ebd10543d37e29bd"
+    "mtime": 1792323683.4044855,
+    "seen": 1792323777.303432,
+    "ast_hash": "037fd8727e0d4dc9898f4dc9eb0c7c02",
+    "semantic_hash": ""
   },
   "Inference/upperbody_inference.py": {
-    "mtime": 1791213394.2165527,
-    "seen": 1792314494.2179446,
-    "ast_hash": "045a80ab303930f0185bb7bea847bd5a",
-    "semantic_hash": "045a80ab303930f0185bb7bea847bd5a"
+    "mtime": 1792323683.4044855,
+    "seen": 1792323777.303432,
+    "ast_hash": "748175f7bf91b04031025b09234f35ec",
+    "semantic_hash": ""
   },
   "OffscreenRenderer/Shaders/__init__.py": {
     "mtime": 1791213394.2165527,
@@ -198,10 +198,10 @@
     "semantic_hash": "21d19bdf3962b55c9a51290f82793f78"
   },
   "SMPL/smpl_regressor.py": {
-    "mtime": 1791820129.4235792,
-    "seen": 1792314494.2179446,
-    "ast_hash": "23fede15f230b3cb6e88162a3fc596f8",
-    "semantic_hash": "23fede15f230b3cb6e88162a3fc596f8"
+    "mtime": 1792323683.4116063,
+    "seen": 1792323777.303432,
+    "ast_hash": "4d0839d1780d6f37d90b1dec9309949d",
+    "semantic_hash": ""
   },
   "SMPL/smpl_renderer.py": {
     "mtime": 1791213394.4160078,
@@ -240,10 +240,10 @@
     "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
   },
   "Training/upperbody_training.py": {
-    "mtime": 1791213394.4160078,
-    "seen": 1792314494.2179446,
-    "ast_hash": "f515bab77e8d15b8bb5fc8301bf3a1b8",
-    "semantic_hash": "f515bab77e8d15b8bb5fc8301bf3a1b8"
+    "mtime": 1792323683.4116063,
+    "seen": 1792323777.303432,
+    "ast_hash": "d4103279437ecad29856879d5485685c",
+    "semantic_hash": ""
   },
   "Training/upperbody_training.sh": {
     "mtime": 1791213394.4160078,
@@ -264,15 +264,15 @@
     "semantic_hash": "bf6bcb7ecf2d62ff05a2b8ae91333477"
   },
   "VITON/viton_fullbody_seq.py": {
-    "mtime": 1792319114.4298012,
-    "seen": 1792319210.5896745,
-    "ast_hash": "8c4af958fe27a424c3b661d072b51371",
+    "mtime": 1792323683.4116063,
+    "seen": 1792323777.303432,
+    "ast_hash": "5480845041a3f60e9cc6139e438d4275",
     "semantic_hash": ""
   },
   "VITON/viton_upperbody.py": {
-    "mtime": 1792319200.3679955,
-    "seen": 1792319210.5896745,
-    "ast_hash": "89a95b75ef6fe27e518d33503a2e99ca",
+    "mtime": 1792323748.3834171,
+    "seen": 1792323777.303432,
+    "ast_hash": "890d8099dfcd4fd5431c7f300d70c9c9",
     "semantic_hash": ""
   },
   "composition/__init__.py": {
@@ -288,9 +288,9 @@
     "semantic_hash": "d9bb54b1268d75073abe5e9a08a45519"
   },
   "composition/naive_overlay.py": {
-    "mtime": 1792319114.4456823,
-    "seen": 1792319210.5896745,
-    "ast_hash": "eaa61eff9f4d8a41cf61433a53e0b412",
+    "mtime": 1792323683.4136076,
+    "seen": 1792323777.303432,
+    "ast_hash": "849e11202f8516ba94a5b250ad6a271b",
     "semantic_hash": ""
   },
   "demo.py": {
@@ -1134,16 +1134,16 @@
     "semantic_hash": "1fc2179dc17e693e95f65bfe235df3bd"
   },
   "model/pix2pixHD/pix2pixHD_rgba.py": {
-    "mtime": 1791213394.6503577,
-    "seen": 1792314494.2179446,
-    "ast_hash": "7d5aa73d5cbde7ac893841d88970ddd3",
-    "semantic_hash": "7d5aa73d5cbde7ac893841d88970ddd3"
+    "mtime": 1792323683.4136076,
+    "seen": 1792323777.303432,
+    "ast_hash": "bb44191411fdec23364dd43e72cfa193",
+    "semantic_hash": ""
   },
   "model/pix2pixHD/pix2pixHD_rnn_rgba.py": {
-    "mtime": 1791213394.6503577,
-    "seen": 1792314494.2179446,
-    "ast_hash": "757ebd0cff9dda4c83bc4c7095c93316",
-    "semantic_hash": "757ebd0cff9dda4c83bc4c7095c93316"
+    "mtime": 1792323683.4136076,
+    "seen": 1792323777.303432,
+    "ast_hash": "47a59db3c922c6bb53774d8a3e0b0342",
+    "semantic_hash": ""
   },
   "model/pix2pixHD/ui_model.py": {
     "mtime": 1791213394.6503577,
@@ -1182,9 +1182,9 @@
     "semantic_hash": "3d5d6cf70db6a6e88a3c1ca1575d6fe5"
   },
   "rtl_demo.py": {
-    "mtime": 1792319831.8136024,
-    "seen": 1792319841.7197673,
-    "ast_hash": "3a82144c4e4b1d9b36de2a052fe0fdf4",
+    "mtime": 1792323760.9697094,
+    "seen": 1792323777.303432,
+    "ast_hash": "2e66805fc765f1721502028396a7cf4b",
     "semantic_hash": ""
   },
   "util/SlideWindowMaskRefine.py": {
@@ -1218,9 +1218,9 @@
     "semantic_hash": "3809ac663e897161bea67a9d92620878"
   },
   "util/densepose_util.py": {
-    "mtime": 1792319114.4456823,
-    "seen": 1792319210.5896745,
-    "ast_hash": "837f9caf36291a748e5c6be2385b0086",
+    "mtime": 1792323683.415609,
+    "seen": 1792323777.303432,
+    "ast_hash": "d790676e8a0ba073a45dfa81520666db",
     "semantic_hash": ""
   },
   "util/diff_tex_sampling.py": {
@@ -1434,16 +1434,16 @@
     "semantic_hash": "5af0a26d1e6c32f2c86c17f2b5abcd8a"
   },
   "training_instructions.md": {
-    "mtime": 1791213394.6503577,
-    "seen": 1792314494.2179446,
-    "ast_hash": "cb65652bd6bd2626acea2249bf9401cd",
-    "semantic_hash": "cb65652bd6bd2626acea2249bf9401cd"
+    "mtime": 1792323683.4136076,
+    "seen": 1792323777.303432,
+    "ast_hash": "b78ad29c771f670d01b01aadc85d59f2",
+    "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1791213394.2175488,
-    "seen": 1792314494.2179446,
-    "ast_hash": "c7c57cbed93a6c26ace72941285463b2",
-    "semantic_hash": "c7c57cbed93a6c26ace72941285463b2"
+    "mtime": 1792323683.4044855,
+    "seen": 1792323777.303432,
+    "ast_hash": "52766d86ce84f2519b3c3e14fa56883c",
+    "semantic_hash": ""
   },
   "assets/pose_guidance/asymmetric.pdf": {
     "mtime": 1791213394.6034877,
@@ -1707,6 +1707,36 @@
     "mtime": 1791213394.5409944,
     "seen": 1792319210.5896745,
     "ast_hash": "f6f800fc0e24bc599d93d2c9863cfd1a",
+    "semantic_hash": ""
+  },
+  "composition/compositor.py": {
+    "mtime": 1792323683.4116063,
+    "seen": 1792323777.303432,
+    "ast_hash": "61d9abc90c490bd860826984eeec6f57",
+    "semantic_hash": ""
+  },
+  "model/garment_model.py": {
+    "mtime": 1792323683.4136076,
+    "seen": 1792323777.303432,
+    "ast_hash": "7c81d8589104ba65dc6527877b58e3f0",
+    "semantic_hash": ""
+  },
+  "util/gpu_check.py": {
+    "mtime": 1792323683.415609,
+    "seen": 1792323777.303432,
+    "ast_hash": "187b03a8433d84a55a70d8e726aed797",
+    "semantic_hash": ""
+  },
+  "util/latency.py": {
+    "mtime": 1792323683.415609,
+    "seen": 1792323777.303432,
+    "ast_hash": "03e4c41333cedd28d380efa010b6421f",
+    "semantic_hash": ""
+  },
+  "util/matte_util.py": {
+    "mtime": 1792323683.415609,
+    "seen": 1792323777.303432,
+    "ast_hash": "38f81290ce0044a6e86dc9896f3099ac",
     "semantic_hash": ""
   }
 }
