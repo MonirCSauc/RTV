@@ -187,6 +187,9 @@ class FrameProcessor:
         garment = raw_target[:3].permute(1, 2, 0)
         alpha = soft_alpha(raw_target[3])
 
+        # keep hands and face in front of the garment
+        alpha = alpha * (1.0 - hand_head_mask(labels))
+
         frame = torch.from_numpy(raw_image).cuda().float()
         if self.remove_worn:
             roi_side = resolution / float(np.linalg.norm(trans2roi[0, :2]))
@@ -200,3 +203,11 @@ def soft_alpha(alpha):
     # instead of the hard >0.5 cut-off, which is what made garment borders look jagged.
     alpha = -F.max_pool2d(-alpha[None, None], 3, 1, 1)[0, 0]
     return ((alpha - 0.3) / 0.4).clamp(0.0, 1.0)
+
+
+def hand_head_mask(labels, dilate_px=5):
+    # GPU version of util.densepose_util.IUV2HandHeadMask: DensePose hands (3, 4) and head (23, 24),
+    # dilated, then box-blurred for a feathered edge. labels: (H, W) long -> (H, W) float in [0, 1]
+    mask = ((labels == 3) | (labels == 4) | (labels == 23) | (labels == 24)).float()[None, None]
+    mask = F.max_pool2d(mask, 2 * dilate_px + 1, 1, dilate_px)
+    return F.avg_pool2d(mask, 5, 1, 2)[0, 0]

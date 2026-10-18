@@ -1,6 +1,7 @@
 import sys
 import os
 import threading
+import argparse
 
 #sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 import cv2
@@ -21,9 +22,9 @@ class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage)
     ROTATIONS = {'90': cv2.ROTATE_90_CLOCKWISE, '180': cv2.ROTATE_180, '270': cv2.ROTATE_90_COUNTERCLOCKWISE}
 
-    def __init__(self,garment_id_list):
+    def __init__(self,garment_id_list,camera=None):
         super().__init__()
-        self.cap = self.get_camera()
+        self.cap = self.get_camera(camera)
         if not self.cap.isOpened():
             print("Failed to open the selected camera.")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -34,9 +35,9 @@ class VitonThread(QThread):
         print(id)
         self.frame_processor.set_target_garment(id)
 
-    def get_camera(self):
-        # RTV_CAMERA: camera index or stream URL (e.g. http://192.168.1.5:4747/video for DroidCam)
-        src = os.environ.get('RTV_CAMERA')
+    def get_camera(self, camera=None):
+        # --camera / RTV_CAMERA: camera index or stream URL (e.g. http://192.168.1.5:4747/video for DroidCam)
+        src = camera or os.environ.get('RTV_CAMERA')
         if src:
             return cv2.VideoCapture(int(src) if src.isdigit() else src)
         # Try each index/backend and keep the first one that actually delivers a frame
@@ -51,7 +52,7 @@ class VitonThread(QThread):
                             print(f"Using camera {index} (backend {backend})")
                             return cap
                 cap.release()
-        print("No working camera found. Set RTV_CAMERA to an index or stream URL.")
+        print("No working camera found. Pass --camera (or set RTV_CAMERA) to an index or stream URL.")
         return cv2.VideoCapture()
 
     def _grab_latest(self):
@@ -104,7 +105,7 @@ class VitonThread(QThread):
         self.cap.release()
 
 class CameraApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, camera=None):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -183,7 +184,7 @@ class CameraApp(QMainWindow):
         for i in range(len(garment_name_list)):
             garment_name_list[i] = garment_name_list[i]+'_vmsdp2ta'
 
-        self.viton_thread = VitonThread(garment_name_list)
+        self.viton_thread = VitonThread(garment_name_list, camera)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -247,7 +248,11 @@ class CameraApp(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = CameraApp()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--camera', default=None,
+                        help='camera index or stream URL; defaults to RTV_CAMERA, then the first working device')
+    args, qt_args = parser.parse_known_args()
+    app = QApplication(sys.argv[:1] + qt_args)
+    window = CameraApp(args.camera)
     window.show()
     sys.exit(app.exec_())
