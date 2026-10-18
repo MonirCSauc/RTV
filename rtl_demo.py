@@ -1,6 +1,8 @@
 import sys
 import os
 import argparse
+import threading
+import time
 
 #sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 import cv2
@@ -26,44 +28,70 @@ class VitonThread(QThread):
         if not self.cap.isOpened():
             print("Failed to open the selected camera.")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        print("Camera resolution: %dx%d" % (self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.running = True
         self.frame_processor = FrameProcessor(garment_id_list)
+        # keep only the newest camera frame, so slow processing never shows stale (laggy, smeared) frames
+        self.latest_frame = None
+        self.frame_lock = threading.Lock()
+        self.grabber = threading.Thread(target=self.grab_frames, daemon=True)
+        self.grabber.start()
 
     def set_taregt_id(self, id):
         print(id)
         self.frame_processor.set_target_garment(id)
 
     def get_camera(self, camera=None):
+        if camera is not None and not camera.isdigit():
+            # a stream URL (e.g. DroidCam's http://<phone-ip>:4747/video); its resolution is set on the phone
+            return cv2.VideoCapture(camera)
         if camera is not None:
-            # a device index (e.g. 2) or a stream URL (e.g. DroidCam's http://<phone-ip>:4747/video)
-            return cv2.VideoCapture(int(camera) if camera.isdigit() else camera)
-        cap = cv2.VideoCapture(1)
-
-        if not cap.isOpened():
-            cap = cv2.VideoCapture(0)
+            cap = cv2.VideoCapture(int(camera))
+        else:
+            cap = cv2.VideoCapture(1)
+            if not cap.isOpened():
+                cap = cv2.VideoCapture(0)
+        # OpenCV opens most webcams at 640x480 unless asked; request 1080p (the camera picks the closest it supports)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
         return cap
+
+    def grab_frames(self):
+        while self.running:
+            ret, frame = self.cap.read()
+            if not ret:
+                time.sleep(0.01)
+                continue
+            with self.frame_lock:
+                self.latest_frame = frame
 
     def run(self):
         while self.running:
-            ret, frame = self.cap.read()
+            with self.frame_lock:
+                frame, self.latest_frame = self.latest_frame, None
+            if frame is None:
+                time.sleep(0.005)
+                continue
 
-            if ret:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                ## ichao: remove flip (Nov 13, 2024)
-                frame=cv2.flip(frame, 1)
-                frame=resize_img(frame,max_height=1024)
-                #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                frame=crop2_169(frame)
-                frame = self.frame_processor(frame)
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                height, width, channel = frame.shape
-                step = channel * width
-                q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888)
-                self.frameCaptured.emit(q_img)
+            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            ## ichao: remove flip (Nov 13, 2024)
+            frame=cv2.flip(frame, 1)
+            frame=resize_img(frame,max_height=1024)
+            #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            frame=crop2_169(frame)
+            frame = self.frame_processor(frame)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            height, width, channel = frame.shape
+            step = channel * width
+            # copy: the QImage must own its pixels, since the numpy buffer is freed before the UI draws it
+            q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888).copy()
+            self.frameCaptured.emit(q_img)
 
 
     def stop(self):
         self.running = False
+        self.grabber.join(timeout=1.0)
         self.cap.release()
 
 class CameraApp(QMainWindow):
