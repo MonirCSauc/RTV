@@ -217,9 +217,10 @@ class DensePoseExtractor(DumpAction):
             return None, float(fraction[best])
         return best, float(fraction[best])
 
-    def get_IUV(self,img, isRGB=False, target_joints=None):
+    def get_IUV(self,img, isRGB=False, target_joints=None, as_tensor=False):
         # target_joints: 2D joints of the person BEV chose; the DensePose instance must be the same person.
         # Without them the largest detection is used (the original behaviour).
+        # as_tensor: return a uint8 (H, W, 3) tensor on the GPU instead of copying it to a numpy array
         if isRGB:
             img = img[:,:,[2,1,0]] # convert to BGR
         with torch.no_grad():
@@ -262,6 +263,8 @@ class DensePoseExtractor(DumpAction):
         output_tensor[0,y_min:y_min+mask_h,x_min:x_min+mask_w]=labels
         output_tensor[1:, y_min:y_min + mask_h, x_min:x_min + mask_w] = uv
         output_tensor[1:,:]*=255.0
+        if as_tensor:
+            return output_tensor.permute(1, 2, 0).to(torch.uint8)  # same truncation as numpy's astype
         IUV = output_tensor.permute(1,2,0).cpu().numpy().astype(np.uint8)
         #print(labels.max())
 

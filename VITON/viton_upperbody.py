@@ -3,7 +3,6 @@ import threading
 import numpy as np
 import cv2
 
-import util.util as util
 import torch
 from SMPL.smpl_regressor import SMPL_Regressor
 from model.DensePose.densepose_extractor import DensePoseExtractor
@@ -11,7 +10,7 @@ from model.garment_model import make_pix2pix_model, read_meta
 
 from SMPL.upperbody_smpl.UpperBody import UpperBodySMPL
 from composition.compositor import GarmentCompositor
-from util.densepose_util import IUV2SDP, IUV2HandHeadMask
+from composition import gpu_ops
 from util.cv2_trans_util import TemporalSmoothing
 from threading import Thread
 from util.latency import NULL_TIMING
@@ -50,6 +49,7 @@ class FrameProcessor:
         self.prev_trans = None     # unsmoothed crop transform of the last accepted frame, to detect a different person
         self.jump_frames = 0       # consecutive frames whose crop jumped away from prev_trans
         self.lock = threading.Lock()
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         self.debug = False       # when True, keep this frame's network inputs/outputs in self.last_debug
         self.last_debug = None
         self._pristine = None
@@ -131,8 +131,14 @@ class FrameProcessor:
             self._forget_person()
         if self.last_good is not None and self.misses <= self.HOLD:
             garment, alpha, occlusion, compositor = self.last_good
-            return compositor(input_frame, garment, alpha, occlusion)
+            return self._compose(input_frame, garment, alpha, occlusion, compositor)
         return input_frame
+
+    def _compose(self, frame, garment, alpha, occlusion, compositor):
+        # blend on the GPU (composition/gpu_ops.py mirrors GarmentCompositor); one copy of the result to the CPU
+        out = gpu_ops.compose(torch.from_numpy(frame).to(self.device), garment, alpha, occlusion,
+                              compositor.premultiplied, compositor.alpha_low, compositor.alpha_high)
+        return out.cpu().numpy()
 
     def _forget_person(self):
         self.last_good = None
@@ -209,56 +215,54 @@ class FrameProcessor:
 
         self._check_untouched(raw_image, 'vm_render')
         with ft.stage('densepose'):
-            # DensePose must describe the same person as BEV: pick its detection by BEV's 2D joints
-            raw_IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False,
-                                                       target_joints=SMPL_Regressor.chosen_joints(smpl_param))
+            # DensePose must describe the same person as BEV: pick its detection by BEV's 2D joints.
+            # The result stays on the GPU (as_tensor): all per-pixel work below runs there.
+            iuv = self.densepose_extractor.get_IUV(raw_image, isRGB=False, as_tensor=True,
+                                                   target_joints=SMPL_Regressor.chosen_joints(smpl_param))
         self._check_untouched(raw_image, 'densepose')
         selection = self.densepose_extractor.last_selection
         ft.note(n_people_dp=selection['n_people'], dp_joint_fraction=selection['joint_fraction'])
-        if raw_IUV is None:
+        if iuv is None:
             return self._miss(input_frame, ft, 'dp_mismatch' if selection['n_people'] else 'dp_no_person')
+        iuv = iuv.to(self.device)
         with ft.stage('inputs'):
-            dpi_img = IUV2SDP(raw_IUV)
-            roi_dpi_img = cv2.warpAffine(dpi_img, trans2roi, (resolution, resolution), flags=cv2.INTER_LINEAR,
-                                         borderMode=cv2.BORDER_CONSTANT,
-                                         borderValue=(0, 0, 0))
-            roi_vm = cv2.warpAffine(raw_vm, trans2roi, (resolution, resolution), flags=cv2.INTER_LINEAR,
-                                    borderMode=cv2.BORDER_CONSTANT,
-                                    borderValue=(0, 0, 0))
-            vm_tensor = util.im2tensor(roi_vm) * 2.0 - 1.0
-            vm_tensor = vm_tensor[:, [2, 1, 0], :, :]
-            dp_tensor = util.im2tensor(roi_dpi_img) * 2.0 - 1.0
+            vm = torch.from_numpy(raw_vm).to(self.device).permute(2, 0, 1)[None].float()
+            # round like the uint8 images the networks were trained on
+            roi_vm = gpu_ops.warp_affine(vm, trans2roi, resolution, resolution).round()
+            roi_sdp = gpu_ops.warp_affine(gpu_ops.iuv_to_sdp(iuv), trans2roi, resolution, resolution).round()
+            vm_tensor = (roi_vm / 255.0 * 2.0 - 1.0)[:, [2, 1, 0]]  # the VM render is BGR; the network wants RGB
+            dp_tensor = roi_sdp / 255.0 * 2.0 - 1.0
         with self.lock:
             if self.viton_model is None:
                 ft.note(outcome='no_garment')
                 return input_frame
             compositor = self.compositor
             with ft.stage('generator'), torch.no_grad():
-                target_tensor = self.viton_model.forward(torch.cat([vm_tensor, dp_tensor], 1).cuda())
+                target_tensor = self.viton_model.forward(torch.cat([vm_tensor, dp_tensor], 1))
         with ft.stage('warp_back'):
-            roi_target = util.tensor2im(target_tensor[0, [0, 1, 2], :, :], normalize=True, rgb=False)
-            roi_alpha = target_tensor[0, 3, :, :].clamp(min=0.0, max=1.0).cpu().numpy().astype(np.float32)
-            raw_target_img = cv2.warpAffine(roi_target, inv_trans2roi, (raw_image.shape[1], raw_image.shape[0]),
-                                            flags=cv2.INTER_LINEAR,
-                                            borderMode=cv2.BORDER_CONSTANT,
-                                            borderValue=(0, 0, 0))
-            raw_alpha = cv2.warpAffine(roi_alpha, inv_trans2roi, (raw_image.shape[1], raw_image.shape[0]),
-                                       flags=cv2.INTER_LINEAR,
-                                       borderMode=cv2.BORDER_CONSTANT,
-                                       borderValue=(0,))
+            # BGR colour in 0..255 and alpha in 0..1, warped from the 512 crop back onto the camera frame
+            roi_out = torch.cat([((target_tensor[:, [2, 1, 0]] + 1.0) / 2.0 * 255.0).clamp(0, 255),
+                                 target_tensor[:, 3:4].clamp(0.0, 1.0)], 1)
+            raw_out = gpu_ops.warp_affine(roi_out, inv_trans2roi, height, width)[0]
+            garment, alpha = raw_out[:3].permute(1, 2, 0), raw_out[3]
         self._check_untouched(raw_image, 'inputs/generator/warp_back')
         with ft.stage('composite'):
-            occlusion_mask = IUV2HandHeadMask(raw_IUV)
+            occlusion = gpu_ops.hand_head_mask(iuv)
             self.misses = 0
-            self.last_good = (raw_target_img, raw_alpha, occlusion_mask, compositor)
-            composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
+            self.last_good = (garment, alpha, occlusion, compositor)
+            composed_img = self._compose(raw_image, garment, alpha, occlusion, compositor)
         ft.note(outcome='ok')
         if self.debug:
+            np_img = lambda t: t.round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+            raw_IUV = iuv.cpu().numpy()
+            occlusion_mask = (occlusion.cpu().numpy() * 255).astype(np.uint8)
             to_roi = lambda img, flags=cv2.INTER_LINEAR: cv2.warpAffine(img, trans2roi, (resolution, resolution), flags=flags)
-            self.last_debug = {'input': to_roi(raw_image), 'vm': roi_vm, 'sdp': roi_dpi_img,
-                               'garment': roi_target, 'alpha': roi_alpha,
+            self.last_debug = {'input': to_roi(raw_image), 'vm': np_img(roi_vm[0].permute(1, 2, 0)),
+                               'sdp': np_img(roi_sdp[0].permute(1, 2, 0)),
+                               'garment': np_img(roi_out[0, :3].permute(1, 2, 0)),
+                               'alpha': roi_out[0, 3].cpu().numpy(),
                                'occlusion': to_roi(occlusion_mask, cv2.INTER_NEAREST),
                                # full-frame arrays, saved with S for offline analysis
-                               'raw': {'frame': raw_image, 'garment': raw_target_img, 'alpha': raw_alpha,
+                               'raw': {'frame': raw_image, 'garment': np_img(garment), 'alpha': alpha.cpu().numpy(),
                                        'occlusion': occlusion_mask, 'iuv': raw_IUV, 'output': composed_img}}
         return composed_img
