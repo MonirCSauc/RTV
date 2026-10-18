@@ -31,12 +31,15 @@ class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage, object)  # (image, FrameTiming)
 
     def __init__(self,garment_id_list,camera=None,ckpt_dir=None,rotate='cw',latency_csv=None,marker=False,debug=False,
-                 processor_options=None):
+                 processor_options=None,lock_camera=False):
         super().__init__()
         self.cap = self.get_camera(camera)
         if not self.cap.isOpened():
             print("Failed to open the selected camera.")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        if lock_camera:
+            self.lock_exposure_and_white_balance(stream=bool(camera or os.environ.get('RTV_CAMERA', '')) and
+                                                 not (camera or os.environ.get('RTV_CAMERA', '')).isdigit())
         print("Camera resolution: %dx%d" % (self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.running = True
         self.rotate = ROTATIONS[rotate]
@@ -77,6 +80,36 @@ class VitonThread(QThread):
                     return cap
         print("No working camera found. Pass --camera (or set RTV_CAMERA) to a camera index or stream URL.")
         return cv2.VideoCapture()
+
+    def lock_exposure_and_white_balance(self, stream=False, settle_frames=30):
+        """Let auto exposure / white balance settle, then freeze them at the settled values.
+
+        A store's lighting changes as people move; an auto-exposure step changes every input at once and makes the
+        body estimates and the garment's brightness flicker. Drivers use different codes for 'manual', so each is
+        tried and the result read back.
+        """
+        if stream:
+            print('Camera lock: a phone stream cannot be controlled from here; lock exposure and white balance in the '
+                  'phone app (e.g. DroidCam: tap to focus/expose, or the app settings).')
+            return
+        for _ in range(settle_frames):
+            self.cap.read()
+        cap = self.cap
+        exposure, wb = cap.get(cv2.CAP_PROP_EXPOSURE), cap.get(cv2.CAP_PROP_WB_TEMPERATURE)
+        auto_before = cap.get(cv2.CAP_PROP_AUTO_EXPOSURE)
+        # manual exposure: 0.25 (legacy V4L/DirectShow mapping), 1 (V4L2 raw 'manual'), 0
+        for manual in (0.25, 1, 0):
+            cap.set(cv2.CAP_PROP_AUTO_EXPOSURE, manual)
+            if cap.get(cv2.CAP_PROP_AUTO_EXPOSURE) != auto_before:
+                break
+        cap.set(cv2.CAP_PROP_EXPOSURE, exposure)
+        cap.set(cv2.CAP_PROP_AUTO_WB, 0)
+        if wb > 0:
+            cap.set(cv2.CAP_PROP_WB_TEMPERATURE, wb)
+        print('Camera lock: auto exposure %s -> %s, exposure %s, auto white balance -> %s, white balance %s '
+              '(unchanged values mean the driver ignores that control)' % (
+                  auto_before, cap.get(cv2.CAP_PROP_AUTO_EXPOSURE), cap.get(cv2.CAP_PROP_EXPOSURE),
+                  cap.get(cv2.CAP_PROP_AUTO_WB), cap.get(cv2.CAP_PROP_WB_TEMPERATURE)))
 
     @staticmethod
     def _delivers_frames(cap, tries=20):
@@ -164,7 +197,7 @@ class VitonThread(QThread):
 
 class CameraApp(QMainWindow):
     def __init__(self, garment_name_list, camera=None, ckpt_dir=None, rotate='cw', latency_csv=None, marker=False,
-                 debug=False, processor_options=None):
+                 debug=False, processor_options=None, lock_camera=False):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -237,7 +270,7 @@ class CameraApp(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
         self.viton_thread = VitonThread(garment_name_list, camera, ckpt_dir, rotate, latency_csv, marker, debug,
-                                        processor_options)
+                                        processor_options, lock_camera)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -325,11 +358,13 @@ if __name__ == "__main__":
     parser.add_argument('--body_shape', default='train', choices=['train', 'zero', 'estimated'],
                         help='body shape used for the 3D body render: as in training (default), all-average, '
                              'or estimated per person (inflated by loose clothing)')
+    parser.add_argument('--lock_camera', action='store_true',
+                        help='after ~1 s of auto adjustment, freeze exposure and white balance (USB/virtual cameras)')
     args, qt_args = parser.parse_known_args()
     processor_options = {'dp_score': args.dp_score, 'body_shape': args.body_shape}
     require_cuda()
     app = QApplication(sys.argv[:1] + qt_args)
     window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate,
-                       args.latency_csv, args.latency_marker, args.debug, processor_options)
+                       args.latency_csv, args.latency_marker, args.debug, processor_options, args.lock_camera)
     window.show()
     sys.exit(app.exec_())

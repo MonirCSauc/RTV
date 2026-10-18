@@ -68,6 +68,8 @@ Useful options:
 
 - `--body_shape {train,zero,estimated}`: body shape of the rendered 3D body. `train` (default) zeroes the shape parameters exactly as the training data did; previously the live demo used each person's estimated shape, which training never saw and which a coat inflates. `zero` and `estimated` are there for experiments.
 
+- `--lock_camera`: let the camera adjust for about a second, then freeze its exposure and white balance, so changing store light or people walking by do not make the image (and the body estimates) flicker. Works for USB and virtual cameras whose driver supports it (the result is printed); for a phone stream, lock exposure in the phone app.
+
 At start-up the demo checks that PyTorch can see a CUDA GPU and prints where BEV, DensePose and each garment network run (they should all show `cuda:0`).
 
 ## BibTeX
