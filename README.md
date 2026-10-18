@@ -55,6 +55,8 @@ Useful options:
 - `--latency_csv <file>`: record each stage's time on the GPU and the delay from camera capture to display, one CSV row per frame, with a p50/p95 summary printed every 100 frames and on exit. Timing synchronises the GPU after each stage, which costs a little speed; leave it off when measuring top fps.
 - `--latency_marker`: draw the frame number and capture time into the output, so a high-speed phone video of the mirror can measure glass-to-glass delay.
 
+- `--debug`: show, next to the output, what the garment network received for that frame: the rendered 3D body (VM), the DensePose body map (SDP), and the garment mask (alpha) with the hands and face that are kept in front of the garment shown in red. Press `S` to save the displayed frame to `./debug_frames/`.
+
 At start-up the demo checks that PyTorch can see a CUDA GPU and prints where BEV, DensePose and each garment network run (they should all show `cuda:0`).
 
 ## BibTeX

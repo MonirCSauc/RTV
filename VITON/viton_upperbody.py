@@ -46,6 +46,8 @@ class FrameProcessor:
         self.garment_remover = WornGarmentRemover()
         self.grid_cache = {}
         self.sdp_lut = None
+        self.debug = False       # when True, keep this frame's network inputs/outputs in self.last_debug
+        self.last_debug = None
         print('Model devices:')
         report_devices({'BEV': self.smpl_regressor.regressor_model,
                         'DensePose': self.densepose_extractor.predictor.model})
@@ -122,6 +124,7 @@ class FrameProcessor:
     @torch.no_grad()
     def __call__(self, input_frame, ft=NULL_TIMING):
         # ft: per-frame timing record (util/latency.py); stages are no-ops unless latency logging is on
+        self.last_debug = None
         if self.viton_model is None:
             return input_frame
 
@@ -168,13 +171,21 @@ class FrameProcessor:
         with ft.stage('composite'):
             garment, alpha = composite_inputs(compositor, raw_target[:3].permute(1, 2, 0), raw_target[3])
             # keep hands and face in front of the garment
-            alpha = alpha * (1.0 - hand_head_mask(labels))
+            occlusion = hand_head_mask(labels)
+            alpha = alpha * (1.0 - occlusion)
             frame = torch.from_numpy(raw_image).cuda().float()
             if self.remove_worn:
                 roi_side = resolution / float(np.linalg.norm(trans2roi[0, :2]))
                 frame = self.garment_remover(frame, labels, vm[0].amax(0) > 0, alpha, roi_side)
             composed = torch.lerp(frame, garment, alpha[..., None])
-            return composed.clamp(0.0, 255.0).to(torch.uint8).cpu().numpy()
+            composed = composed.clamp(0.0, 255.0).to(torch.uint8).cpu().numpy()
+        if self.debug:
+            to_img = lambda t: t[0].permute(1, 2, 0).mul(255.0).clamp(0.0, 255.0).to(torch.uint8).cpu().numpy()
+            roi_occlusion = self._sample(occlusion[None, None], inv_trans2roi, resolution, resolution)
+            self.last_debug = {'vm': to_img(vm_tensor[:, [2, 1, 0]] * 0.5 + 0.5), 'sdp': to_img(dp_tensor * 0.5 + 0.5),
+                               'alpha': target_tensor[0, 3].clamp(0.0, 1.0).cpu().numpy(),
+                               'occlusion': to_img(roi_occlusion)[..., 0]}
+        return composed
 
 
 def composite_inputs(compositor, garment, alpha, eps=1e-3):

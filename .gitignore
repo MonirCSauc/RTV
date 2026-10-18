@@ -12,3 +12,6 @@ rtv_ckpts/
 # graphify: keep graph outputs, drop local cache and machine-specific state
 graphify-out/cache/
 graphify-out/.graphify_*
+
+# debug view snapshots (S key with --debug)
+debug_frames/
