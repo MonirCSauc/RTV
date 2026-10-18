@@ -13,7 +13,7 @@ from PyQt5.QtCore import QTimer, Qt, QThread, pyqtSignal, QSize, QUrl, QEvent, Q
 # from PyQt5 import QtMultimedia
 from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
-from util.image_warp import crop2_169, resize_img
+from util.image_warp import crop2_169
 
 from VITON.viton_upperbody import FrameProcessor
 from util.camera_util import list_available_cameras
@@ -56,20 +56,50 @@ class VitonThread(QThread):
         self.frame_processor.set_target_garment(id)
 
     def get_camera(self, camera=None):
-        if camera is not None and not camera.isdigit():
-            # a stream URL (e.g. DroidCam's http://<phone-ip>:4747/video); its resolution is set on the phone
-            return cv2.VideoCapture(camera)
-        if camera is not None:
-            cap = cv2.VideoCapture(int(camera))
-        else:
-            cap = cv2.VideoCapture(1)
+        # --camera / RTV_CAMERA: a camera index, or a stream URL such as DroidCam's http://<phone-ip>:4747/video
+        src = camera or os.environ.get('RTV_CAMERA')
+        if src and not src.isdigit():
+            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
             if not cap.isOpened():
-                cap = cv2.VideoCapture(0)
-        # OpenCV opens most webcams at 640x480 unless asked; request 1080p (the camera picks the closest it supports)
-        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
-        return cap
+                cap = cv2.VideoCapture(src)
+            if not cap.isOpened():
+                print("Could not open the stream %s; check the phone's IP and port and that both are on the same "
+                      "network (open the URL in a browser to test)." % src)
+            return cap
+        # Windows: the DroidCam client installs a DirectShow device, which Media Foundation (OpenCV's default)
+        # often cannot open, so try DirectShow first
+        backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY] if sys.platform == 'win32' else [cv2.CAP_ANY]
+        for index in ([int(src)] if src else [1, 0, 2, 3]):
+            for backend in backends:
+                cap = self._open_delivering(index, backend)
+                if cap is not None:
+                    return cap
+        print("No working camera found. Pass --camera (or set RTV_CAMERA) to a camera index or stream URL.")
+        return cv2.VideoCapture()
+
+    @staticmethod
+    def _delivers_frames(cap, tries=20):
+        # isOpened() is also true for virtual or busy cameras that never produce video
+        return any(cap.read()[0] for _ in range(tries))
+
+    def _open_delivering(self, index, backend):
+        for request_hd in (True, False):
+            cap = cv2.VideoCapture(index, backend)
+            if not cap.isOpened():
+                cap.release()
+                return None
+            if request_hd:
+                # OpenCV opens most webcams at 640x480 unless asked; request 1080p (the camera picks the closest)
+                cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+            if self._delivers_frames(cap):
+                print("Using camera %d (OpenCV backend %s)%s" % (index, cap.getBackendName(),
+                                                                 '' if request_hd else ', at its default resolution'))
+                return cap
+            # some virtual cameras (e.g. DroidCam) stop delivering when asked for MJPG/1080p: retry at defaults
+            cap.release()
+        return None
 
     def grab_frames(self):
         while self.running:
@@ -99,9 +129,10 @@ class VitonThread(QThread):
                     frame = cv2.rotate(frame, self.rotate)
                 ## ichao: remove flip (Nov 13, 2024)
                 frame=cv2.flip(frame, 1)
-                frame=resize_img(frame,max_height=1024)
-                #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 frame=crop2_169(frame)
+                # one working size for every camera (models and training data use 1024-high frames)
+                frame=cv2.resize(frame, (576, 1024),
+                                 interpolation=cv2.INTER_CUBIC if frame.shape[0] < 1024 else cv2.INTER_AREA)
             frame = self.frame_processor(frame, ft)
             if self.frame_processor.debug and self.frame_processor.last_debug is not None:
                 frame = compose_debug_panel(frame, self.frame_processor.last_debug)
@@ -274,7 +305,8 @@ class CameraApp(QMainWindow):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--camera', default=None,
-                        help='camera index or stream URL; defaults to trying index 1, then 0')
+                        help='camera index or stream URL (e.g. http://<phone-ip>:4747/video for DroidCam); '
+                             'defaults to RTV_CAMERA, then the first camera that delivers frames')
     parser.add_argument('--garments', default=','.join(DEFAULT_GARMENTS),
                         help='comma-separated checkpoint names inside --ckpt_dir')
     parser.add_argument('--ckpt_dir', default='./rtv_ckpts', help='directory holding the garment checkpoints')

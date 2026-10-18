@@ -1,7 +1,10 @@
 import pickle
 import os
 
-os.environ["PYOPENGL_PLATFORM"] = "egl"
+import sys
+# same backend rule as OffscreenRenderer/gl_utils.py: EGL on Linux, none forced on Windows/macOS (no EGL there)
+if (os.environ.get('RTV_GL_BACKEND') or ('egl' if sys.platform.startswith('linux') else 'glfw')) == 'egl':
+    os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
 import numpy as np
 #import pyrender
 import trimesh

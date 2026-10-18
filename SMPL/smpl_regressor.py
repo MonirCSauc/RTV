@@ -63,6 +63,9 @@ class SMPL_Regressor:
         if torch.cuda.is_available():
             settings.GPU = 0  # run BEV on the first GPU
         bev_model = MyBEV(settings,fix_body=fix_body)
+        if isinstance(getattr(bev_model, 'model', None), torch.nn.DataParallel):
+            # single GPU: the wrapper only adds per-frame overhead
+            bev_model.model = bev_model.model.module
         return bev_model
 
     def create_romp_model(self):

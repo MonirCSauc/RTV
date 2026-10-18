@@ -71,13 +71,13 @@ def get_palette(num_cls):
     return palette
 
 class DensePoseExtractor(DumpAction):
-    def __init__(self):
+    def __init__(self, opts=None):
         self.parser = argparse.ArgumentParser()
 
         self.dp_model = DumpAction()
         #self.dp_model.add_arguments(self.parser)
         self.args = self.parser.parse_args([])
-        opts = []
+        opts = list(opts or [])  # detectron2 config overrides: ['KEY', value, ...]
         self.cfg = './model/DensePose/configs/densepose_rcnn_R_50_FPN_s1x.yaml'
         self.model = 'https://dl.fbaipublicfiles.com/densepose/densepose_rcnn_R_50_FPN_s1x/165712039/model_final_162be9.pkl'
         cfg = self.dp_model.setup_config(self.cfg, self.model, self.args, opts)

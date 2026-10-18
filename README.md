@@ -48,6 +48,13 @@ Please make sure that there is a webcam connected to your PC before running the 
 ```
 python rtl_demo.py
 ```
+Using a phone as the camera (DroidCam):
+- Over Wi-Fi, no PC client needed: `python rtl_demo.py --camera http://<phone-ip>:4747/video` (the IP and port are shown in the DroidCam app; the phone and PC must be on the same network, and the DroidCam PC client must be closed, since the phone serves one connection at a time).
+- With the DroidCam PC client (Wi-Fi or USB): connect in the client, then run `python util/camera_util.py` to find its camera number and pass `--camera <number>`. On Windows the demo opens cameras through DirectShow first, which DroidCam's virtual camera needs.
+- Hold the phone upright on a stand; the default `--rotate cw` turns DroidCam's sideways image upright (use `--rotate ccw` if you appear upside down). The free DroidCam app sends at most 640x480; frames are scaled to 576x1024 for the models.
+
+On Windows the body renderer uses a hidden GLFW window for OpenGL (`pip install glfw`); on Linux it uses EGL.
+
 Useful options:
 - `--camera <index or URL>`: pick the camera, e.g. `--camera 2` or a phone stream such as `--camera http://<phone-ip>:4747/video` (DroidCam).
 - `--rotate {cw,ccw,180,none}`: rotation applied to camera frames (default `cw`, for a camera mounted sideways in portrait).
