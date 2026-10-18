@@ -107,7 +107,8 @@ class Pix2PixHD_RNN_RGBA(Pix2PixHDModel):
             # optimizer D
             params = list(self.netD.parameters())
             self.optimizer_D = torch.optim.Adam(params, lr=opt.lr, betas=(opt.beta1, 0.999))
-        self.optical_flow = OpticalFlow(small=True)
+        if self.isTrain:
+            self.optical_flow = OpticalFlow(small=True)  # only the training temporal loss uses it
         self.l1loss = nn.L1Loss()
 
     def temporal_loss(self, fake_image,real_image):

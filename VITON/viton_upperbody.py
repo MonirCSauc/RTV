@@ -55,6 +55,7 @@ class FrameProcessor:
         report_devices({'BEV': self.smpl_regressor.regressor_model,
                         'DensePose': self.densepose_extractor.predictor.model})
 
+        self.resident = False
         self.load_all = Thread(target=self.load_all_models, args=())
         self.load_all.daemon = True
         self.load_all.start()
@@ -62,11 +63,25 @@ class FrameProcessor:
     def make_model(self, garment_name):
         return make_pix2pix_model(garment_name, 6, output_nc=4, model_name='pix2pixHD', ckpt_dir=self.ckpt_dir)
 
+    GARMENT_GPU_BYTES = 800 * 2 ** 20  # one fp32 pix2pixHD garment network is ~730 MB
+
+    def fits_on_gpu(self, n_models):
+        # keep every garment resident on the GPU when it leaves room for BEV, DensePose and activations (~2.5 GB),
+        # so switching garments is a pointer swap instead of a 730 MB copy while the frame loop waits
+        free, _ = torch.cuda.mem_get_info()
+        return free > n_models * self.GARMENT_GPU_BYTES + 2.5 * 2 ** 30
+
     def load_all_models(self):
+        resident = torch.cuda.is_available() and self.fits_on_gpu(len(self.garment_name_list))
+        print('Garment networks: %s' % ('all kept on the GPU (instant switching)' if resident else
+                                        'kept in CPU memory, copied to the GPU when selected'))
         for i, garment_name in enumerate(self.garment_name_list):
             new_model = self.make_model(garment_name)
+            if resident:
+                new_model = new_model.to('cuda:0')
             if self.viton_model_list[i] is None:
                 self.viton_model_list[i] = new_model
+        self.resident = resident
 
     def load_one_models(self, garment_name):
         new_model = self.make_model(garment_name)
@@ -75,22 +90,24 @@ class FrameProcessor:
             self.viton_model_list[id] = new_model
 
     def switch_to_target_garment(self, garment_id):
-        with self.lock:
-            print("Loading from CPU target garment id: ", garment_id)
-            id = garment_id
-            if id >= 0 and self.viton_model_list[id] is None:
+        # load and copy to the GPU outside the lock: the frame loop keeps running on the current garment meanwhile
+        new_model = None
+        if garment_id >= 0:
+            if self.viton_model_list[garment_id] is None:
                 print("Loading from disk target garment id: ", garment_id)
-                self.load_one_models(self.garment_name_list[id])
+                self.load_one_models(self.garment_name_list[garment_id])
+            new_model = self.viton_model_list[garment_id].to('cuda:0')
+        print("Garment %d ready on %s" % (garment_id, next(new_model.parameters()).device if new_model is not None
+                                          else None))
+        with self.lock:  # only the swap itself blocks the frame loop
             old_model = self.viton_model
-            new_model = self.viton_model_list[id].to('cuda:0') if garment_id >= 0 else None
-            print("Finished; garment network on", next(new_model.parameters()).device if new_model is not None else None)
             self.viton_model = new_model
-            self.compositor = self.compositor_list[id] if garment_id >= 0 else None
+            self.compositor = self.compositor_list[garment_id] if garment_id >= 0 else None
             self.last_good = None  # never hold or fade the previous garment's image
             self.visibility = 0.0
-            if old_model is not None and old_model is not new_model:
-                old_model.to('cpu')
-                torch.cuda.empty_cache()
+        if old_model is not None and old_model is not new_model and not self.resident:
+            old_model.to('cpu')
+            torch.cuda.empty_cache()
 
     def set_target_garment(self, target_id):
         t = Thread(target=self.switch_to_target_garment, args=(target_id,))

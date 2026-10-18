@@ -54,7 +54,7 @@ class UpperBodyGarment(data.Dataset):
         IUV =np.load(iuv_path)
 
         dp_img = IUV2SDP(IUV)
-        dp_img = cv2.resize(dp_img, (raw_w, raw_h),cv2.INTER_NEAREST)
+        dp_img = cv2.resize(dp_img, (raw_w, raw_h), interpolation=cv2.INTER_NEAREST)  # keep part labels exact
 
         new_trans2roi = self.randomaffine(trans2roi)
 
