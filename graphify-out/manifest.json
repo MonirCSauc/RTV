@@ -1,10 +1,4 @@
 {
-  ".claude/settings.json": {
-    "mtime": 1792314142.7388656,
-    "seen": 1792314494.2179446,
-    "ast_hash": "0b71ef6a271be39e0f0e578b005aa513",
-    "semantic_hash": "0b71ef6a271be39e0f0e578b005aa513"
-  },
   "DatasetGeneration/__init__.py": {
     "mtime": 1791213394.2155554,
     "seen": 1792314494.2179446,
@@ -270,16 +264,16 @@
     "semantic_hash": "bf6bcb7ecf2d62ff05a2b8ae91333477"
   },
   "VITON/viton_fullbody_seq.py": {
-    "mtime": 1791213394.4160078,
-    "seen": 1792314494.2179446,
-    "ast_hash": "4d33119df26628ec1573eda7e388c22f",
-    "semantic_hash": "4d33119df26628ec1573eda7e388c22f"
+    "mtime": 1792319114.4298012,
+    "seen": 1792319210.5896745,
+    "ast_hash": "8c4af958fe27a424c3b661d072b51371",
+    "semantic_hash": ""
   },
   "VITON/viton_upperbody.py": {
-    "mtime": 1791820129.424806,
-    "seen": 1792314494.2179446,
-    "ast_hash": "356bbc47da2dfa5bb0b36e87a0db0aeb",
-    "semantic_hash": "356bbc47da2dfa5bb0b36e87a0db0aeb"
+    "mtime": 1792319200.3679955,
+    "seen": 1792319210.5896745,
+    "ast_hash": "89a95b75ef6fe27e518d33503a2e99ca",
+    "semantic_hash": ""
   },
   "composition/__init__.py": {
     "mtime": 1791213394.6191113,
@@ -294,10 +288,10 @@
     "semantic_hash": "d9bb54b1268d75073abe5e9a08a45519"
   },
   "composition/naive_overlay.py": {
-    "mtime": 1791213394.6191113,
-    "seen": 1792314494.2179446,
-    "ast_hash": "849e11202f8516ba94a5b250ad6a271b",
-    "semantic_hash": "849e11202f8516ba94a5b250ad6a271b"
+    "mtime": 1792319114.4456823,
+    "seen": 1792319210.5896745,
+    "ast_hash": "eaa61eff9f4d8a41cf61433a53e0b412",
+    "semantic_hash": ""
   },
   "demo.py": {
     "mtime": 1791213394.6191113,
@@ -1188,10 +1182,10 @@
     "semantic_hash": "3d5d6cf70db6a6e88a3c1ca1575d6fe5"
   },
   "rtl_demo.py": {
-    "mtime": 1791820153.9603426,
-    "seen": 1792314494.2179446,
-    "ast_hash": "0dcb0216af5f91bad41edc9e4a25b3d2",
-    "semantic_hash": "0dcb0216af5f91bad41edc9e4a25b3d2"
+    "mtime": 1792319200.3679955,
+    "seen": 1792319210.5896745,
+    "ast_hash": "e95a85e9c56d1ac8762cf6fc74780ddb",
+    "semantic_hash": ""
   },
   "util/SlideWindowMaskRefine.py": {
     "mtime": 1791213394.6503577,
@@ -1224,10 +1218,10 @@
     "semantic_hash": "3809ac663e897161bea67a9d92620878"
   },
   "util/densepose_util.py": {
-    "mtime": 1791213394.6503577,
-    "seen": 1792314494.2179446,
-    "ast_hash": "37dd1a137ff5e52fdd1f7dec7e52ec58",
-    "semantic_hash": "37dd1a137ff5e52fdd1f7dec7e52ec58"
+    "mtime": 1792319114.4456823,
+    "seen": 1792319210.5896745,
+    "ast_hash": "837f9caf36291a748e5c6be2385b0086",
+    "semantic_hash": ""
   },
   "util/diff_tex_sampling.py": {
     "mtime": 1791213394.6503577,
@@ -1439,12 +1433,6 @@
     "ast_hash": "5af0a26d1e6c32f2c86c17f2b5abcd8a",
     "semantic_hash": "5af0a26d1e6c32f2c86c17f2b5abcd8a"
   },
-  "rtv_ckpts/README.md": {
-    "mtime": 1791369563.8275867,
-    "seen": 1792314494.2179446,
-    "ast_hash": "49e7a1f17da51f0715fbb6b8ea414d57",
-    "semantic_hash": "49e7a1f17da51f0715fbb6b8ea414d57"
-  },
   "training_instructions.md": {
     "mtime": 1791213394.6503577,
     "seen": 1792314494.2179446,
@@ -1546,5 +1534,179 @@
     "seen": 1792314494.2179446,
     "ast_hash": "b31801ebc7361a59c5026eefa0394993",
     "semantic_hash": "b31801ebc7361a59c5026eefa0394993"
+  },
+  "assets/garment_images/jin_01_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "89549b4df77bb9aae1c2006b55160e31",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_02_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "cfd09dab5f430962cacd2277668f8d20",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_03_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "e03df10a7e134d1c9654fb55ff03dbb6",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_04_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "097b8f19e56a6afa168ad320f30c636d",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_05_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "1da50c788838b48d373ed08b7c560eec",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_06_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "95a7b7ee40d538707712c1d793f15e24",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_08_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "4dffd7d74df5d0b6b4319864eb1df473",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_09_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "36fadd0704138862b4c1a8e45ea3bb14",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_10_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "a9e18bdb7d8bf509df40f14e90e21518",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_11_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "a2064f45dc27672996366797a6526a5e",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_12_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "fc236cc5a67252a143d48c099201f182",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_14_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "05c42b85a4b97d7848401a58af359e6a",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_15_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "20636454c9494bcfc495c286d4b112bb",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_16_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "2fd00fe91f99e45b8bdef93e53f44728",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_17_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "a3ffbe99cbf57b5595cdb0f5ca67de55",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_18_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "e66e3e1f6d74e2e67b579b281c56ef6d",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_19_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "508f544d5f8400395f37a926d53d4738",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_21_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "cb79d9526ec40d69a1bd9945f415ad3d",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_22_white_bg.jpg": {
+    "mtime": 1791213394.5253713,
+    "seen": 1792319210.5896745,
+    "ast_hash": "a95fb56e41b2a9660dad12fc513908b9",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_23_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "b144804534217ba6b616321709fcede9",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_24_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "3f99434a4f2f7b139f7a38a54d348027",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/jin_25_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "99fc414df04325fcb8a924e116f79f54",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/lab_01_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "c492409d33c1649f6ab305404b544ae2",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/lab_02_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "affb5ca59f052bd2ce209aab2e6b71de",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/lab_03_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "3e433f3daf60fefd9b5754cb8aada1c2",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/lab_04_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "84d7eb59494759aecacf55fc44b866fa",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/lab_05_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "adfdb6bbf42dbf357b9a6d697164901a",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/lab_06_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "4a847321774b7ae3183865867f0536d4",
+    "semantic_hash": ""
+  },
+  "assets/garment_images/lab_07_white_bg.jpg": {
+    "mtime": 1791213394.5409944,
+    "seen": 1792319210.5896745,
+    "ast_hash": "f6f800fc0e24bc599d93d2c9863cfd1a",
+    "semantic_hash": ""
   }
 }

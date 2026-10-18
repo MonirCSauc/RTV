@@ -28,8 +28,10 @@ class VitonThread(QThread):
         if not self.cap.isOpened():
             print("Failed to open the selected camera.")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        print("Camera resolution: %dx%d" % (self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.running = True
         self.frame_processor = FrameProcessor(garment_id_list)
+        self.grabber = None
 
     def set_taregt_id(self, id):
         print(id)
@@ -38,8 +40,11 @@ class VitonThread(QThread):
     def get_camera(self, camera=None):
         # --camera / RTV_CAMERA: camera index or stream URL (e.g. http://192.168.1.5:4747/video for DroidCam)
         src = camera or os.environ.get('RTV_CAMERA')
+        if src and not src.isdigit():
+            # a stream URL; its resolution is set on the sending side (e.g. the DroidCam phone app)
+            return cv2.VideoCapture(src)
         if src:
-            return cv2.VideoCapture(int(src) if src.isdigit() else src)
+            return self._request_hd(cv2.VideoCapture(int(src)))
         # Try each index/backend and keep the first one that actually delivers a frame
         # (isOpened() alone is true for virtual/busy cameras that never produce video).
         backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, cv2.CAP_ANY] if sys.platform == 'win32' else [cv2.CAP_ANY]
@@ -47,6 +52,7 @@ class VitonThread(QThread):
             for backend in backends:
                 cap = cv2.VideoCapture(index, backend)
                 if cap.isOpened():
+                    self._request_hd(cap)
                     for _ in range(10):
                         if cap.read()[0]:
                             print(f"Using camera {index} (backend {backend})")
@@ -54,6 +60,14 @@ class VitonThread(QThread):
                 cap.release()
         print("No working camera found. Pass --camera (or set RTV_CAMERA) to an index or stream URL.")
         return cv2.VideoCapture()
+
+    @staticmethod
+    def _request_hd(cap):
+        # OpenCV opens most webcams at 640x480 unless asked; request 1080p (the camera picks the closest it supports)
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'MJPG'))
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+        return cap
 
     def _grab_latest(self):
         # Drain the stream continuously so processing never works on stale, buffered frames
@@ -66,7 +80,8 @@ class VitonThread(QThread):
 
     def run(self):
         self._latest = None
-        threading.Thread(target=self._grab_latest, daemon=True).start()
+        self.grabber = threading.Thread(target=self._grab_latest, daemon=True)
+        self.grabber.start()
         # RTV_HEIGHT: height the try-on is composited at. Frames are scaled up to it so the garment stays
         # sharp on a low-resolution camera; lower it for more speed.
         max_h = int(os.environ.get('RTV_HEIGHT', '1024'))
@@ -102,6 +117,8 @@ class VitonThread(QThread):
 
     def stop(self):
         self.running = False
+        if self.grabber is not None:
+            self.grabber.join(timeout=1.0)
         self.cap.release()
 
 class CameraApp(QMainWindow):
