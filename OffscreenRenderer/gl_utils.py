@@ -16,6 +16,11 @@ from OpenGL import error
 from OpenGL.GL import *
 
 
+def _address(handle):
+    # GLFW/EGL handles are ctypes objects; compare what they point to, not the Python wrappers
+    return ctypes.cast(handle, ctypes.c_void_p).value if handle else None
+
+
 class _EGLContext:
     def __init__(self, surface_size):
         import OpenGL.EGL as egl
@@ -61,7 +66,9 @@ class _EGLContext:
         self.make_current()
 
     def make_current(self):
-        self.egl.eglMakeCurrent(self.display, self.surface, self.surface, self.context)
+        # switching contexts is not free; it is only needed when another context became current in this thread
+        if _address(self.egl.eglGetCurrentContext()) != _address(self.context):
+            self.egl.eglMakeCurrent(self.display, self.surface, self.surface, self.context)
 
     def destroy(self):
         self.egl.eglDestroySurface(self.display, self.surface)
@@ -86,7 +93,9 @@ class _GLFWContext:
         print('OpenGL renderer: %s (%s)' % (glGetString(GL_RENDERER).decode(), glGetString(GL_VERSION).decode()))
 
     def make_current(self):
-        self.glfw.make_context_current(self.window)
+        # wglMakeCurrent is not free on Windows; only switch when another context became current in this thread
+        if _address(self.glfw.get_current_context()) != _address(self.window):
+            self.glfw.make_context_current(self.window)
 
     def destroy(self):
         self.glfw.destroy_window(self.window)

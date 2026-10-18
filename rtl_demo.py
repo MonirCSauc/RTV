@@ -355,13 +355,17 @@ if __name__ == "__main__":
                         help='show what the garment network sees (VM, SDP, alpha) next to the output; S saves a frame')
     parser.add_argument('--dp_score', type=float, default=0.5,
                         help='minimum DensePose detection score; weaker detections (posters, mannequins) are ignored')
-    parser.add_argument('--body_shape', default='train', choices=['train', 'zero', 'estimated'],
-                        help='body shape used for the 3D body render: as in training (default), all-average, '
-                             'or estimated per person (inflated by loose clothing)')
+    parser.add_argument('--body_shape', default='estimated', choices=['estimated', 'train', 'zero'],
+                        help="body shape for the 3D body render: the customer's own estimate (default), as in "
+                             "training (average), or all shape parameters zeroed")
     parser.add_argument('--lock_camera', action='store_true',
                         help='after ~1 s of auto adjustment, freeze exposure and white balance (USB/virtual cameras)')
+    parser.add_argument('--keep_garments_on_gpu', action='store_true',
+                        help='keep all garment networks on the GPU (~0.8 GB each) for instant switching; only with '
+                             'plenty of GPU memory, otherwise Windows slows every frame down')
     args, qt_args = parser.parse_known_args()
-    processor_options = {'dp_score': args.dp_score, 'body_shape': args.body_shape}
+    processor_options = {'dp_score': args.dp_score, 'body_shape': args.body_shape,
+                         'keep_garments_on_gpu': args.keep_garments_on_gpu}
     require_cuda()
     app = QApplication(sys.argv[:1] + qt_args)
     window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate,

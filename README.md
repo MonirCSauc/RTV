@@ -66,7 +66,8 @@ Useful options:
 
 - `--dp_score <0..1>`: minimum DensePose detection score (default 0.5). DensePose now always describes the same person as the 3D body (BEV): its detection is chosen by BEV's 2D joints, and a frame where they disagree is skipped instead of mixing two people. The latency CSV records per frame how many people each model saw, how well they agreed (`dp_joint_fraction`), and the frame `outcome` (`ok`, `no_person`, `dp_mismatch`, `dp_no_person`, `no_garment`).
 
-- `--body_shape {train,zero,estimated}`: body shape of the rendered 3D body. `train` (default) zeroes the shape parameters exactly as the training data did; previously the live demo used each person's estimated shape, which training never saw and which a coat inflates. `zero` and `estimated` are there for experiments.
+- `--body_shape {estimated,train,zero}`: body shape of the rendered 3D body. `estimated` (default) follows the customer's own shape; `train` (average shape, as in the training data) and `zero` are there for experiments and can make the garment narrower or wider than the person.
+- `--keep_garments_on_gpu`: keep every garment network on the GPU (~0.8 GB each) so switching is instant. Only with plenty of GPU memory: on Windows, running short does not fail but silently slows every frame.
 
 - `--lock_camera`: let the camera adjust for about a second, then freeze its exposure and white balance, so changing store light or people walking by do not make the image (and the body estimates) flicker. Works for USB and virtual cameras whose driver supports it (the result is printed); for a phone stream, lock exposure in the phone app.
 
