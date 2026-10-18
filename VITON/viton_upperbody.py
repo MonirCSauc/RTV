@@ -23,7 +23,7 @@ import time
 from SMPL.upperbody_smpl.UpperBody import UpperBodySMPL
 from tqdm import tqdm
 from composition.naive_overlay import naive_overlay, naive_overlay_alpha
-from util.densepose_util import IUV2UpperBodyImg, IUV2TorsoLeg, IUV2SDP
+from util.densepose_util import IUV2UpperBodyImg, IUV2TorsoLeg, IUV2SDP, IUV2HandHeadMask
 from threading import Thread
 
 
@@ -161,5 +161,6 @@ class FrameProcessor:
                                    flags=cv2.INTER_LINEAR,
                                    borderMode=cv2.BORDER_CONSTANT,
                                    borderValue=(0,))
-        composed_img = naive_overlay_alpha(raw_image, raw_target_img, raw_alpha)
+        occlusion_mask = IUV2HandHeadMask(raw_IUV)
+        composed_img = naive_overlay_alpha(raw_image, raw_target_img, raw_alpha, occlusion_mask)
         return composed_img

@@ -23,7 +23,7 @@ import time
 from SMPL.fullbody_smpl.FullBody import FullBodySMPL
 from tqdm import tqdm
 from composition.naive_overlay import naive_overlay, naive_overlay_alpha
-from util.densepose_util import IUV2UpperBodyImg, IUV2TorsoLeg, IUV2SDP, IUV2SSDP
+from util.densepose_util import IUV2UpperBodyImg, IUV2TorsoLeg, IUV2SDP, IUV2SSDP, IUV2HandHeadMask
 from threading import Thread
 from util.cv2_trans_util import TemporalSmoothing
 
@@ -106,6 +106,7 @@ class FullBodySeqFrameProcessor:
                                    flags=cv2.INTER_LINEAR,
                                    borderMode=cv2.BORDER_CONSTANT,
                                    borderValue=(0,))
-        composed_img = naive_overlay_alpha(raw_image, raw_target_img, raw_alpha)
+        occlusion_mask = IUV2HandHeadMask(IUV)
+        composed_img = naive_overlay_alpha(raw_image, raw_target_img, raw_alpha, occlusion_mask)
 
         return composed_img

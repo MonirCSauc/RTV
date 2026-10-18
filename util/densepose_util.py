@@ -89,6 +89,16 @@ def IUV2TorsoLeg(IUV: np.ndarray):
     return result
 
 
+def IUV2HandHeadMask(IUV: np.ndarray, dilate_px=5):
+    # visible hands (3, 4) and head (23, 24); these must stay in front of the synthesized garment
+    hand_head_index = [3, 4, 23, 24]
+    mask = np.isin(IUV[:, :, 0], hand_head_index).astype(np.uint8) * 255
+    if dilate_px > 0:
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dilate_px + 1, 2 * dilate_px + 1))
+        mask = cv2.dilate(mask, kernel)
+    return mask
+
+
 def IUV2SDP(IUV: np.ndarray):
     torsoleg_index = [1, 2, 5, 6, 7, 9, 8, 10, 11, 13, 12, 14]
 
