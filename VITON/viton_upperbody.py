@@ -35,6 +35,8 @@ class FrameProcessor:
         # removes jitter from noisy joints without misaligning the garment
         self.roi_smoothing = TemporalSmoothing(c=0.6)
         self.lock = threading.Lock()
+        self.debug = False       # when True, keep this frame's network inputs/outputs in self.last_debug
+        self.last_debug = None
         print('Model devices:')
         report_devices({'BEV': self.smpl_regressor.regressor_model,
                         'DensePose': self.densepose_extractor.predictor.model})
@@ -81,6 +83,7 @@ class FrameProcessor:
 
     def __call__(self, input_frame, ft=NULL_TIMING):
         # ft: per-frame timing record (util/latency.py); stages are no-ops unless latency logging is on
+        self.last_debug = None
         if self.viton_model is None:
             return input_frame
 
@@ -143,4 +146,8 @@ class FrameProcessor:
         with ft.stage('composite'):
             occlusion_mask = IUV2HandHeadMask(raw_IUV)
             composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
+        if self.debug:
+            self.last_debug = {'vm': roi_vm, 'sdp': roi_dpi_img, 'alpha': roi_alpha,
+                               'occlusion': cv2.warpAffine(occlusion_mask, trans2roi, (resolution, resolution),
+                                                           flags=cv2.INTER_NEAREST)}
         return composed_img

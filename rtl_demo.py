@@ -19,6 +19,7 @@ from VITON.viton_upperbody import FrameProcessor
 from util.camera_util import list_available_cameras
 from util.latency import LatencyRecorder, now, draw_latency_marker
 from util.gpu_check import require_cuda
+from util.debug_view import compose_debug_panel
 
 
 DEFAULT_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
@@ -29,7 +30,7 @@ ROTATIONS = {'cw': cv2.ROTATE_90_CLOCKWISE, 'ccw': cv2.ROTATE_90_COUNTERCLOCKWIS
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage, object)  # (image, FrameTiming)
 
-    def __init__(self,garment_id_list,camera=None,ckpt_dir=None,rotate='cw',latency_csv=None,marker=False):
+    def __init__(self,garment_id_list,camera=None,ckpt_dir=None,rotate='cw',latency_csv=None,marker=False,debug=False):
         super().__init__()
         self.cap = self.get_camera(camera)
         if not self.cap.isOpened():
@@ -42,6 +43,8 @@ class VitonThread(QThread):
         self.lat = LatencyRecorder(enabled=latency_csv is not None, sync_cuda=True, csv_path=latency_csv)
         self.marker = marker
         self.frame_processor = FrameProcessor(garment_id_list, ckpt_dir=ckpt_dir)
+        self.frame_processor.debug = debug
+        self.save_next = False  # set by the S key: save the next displayed frame to ./debug_frames/
         # keep only the newest camera frame, so slow processing never shows stale (laggy, smeared) frames
         self.latest_frame = None
         self.frame_lock = threading.Lock()
@@ -100,6 +103,14 @@ class VitonThread(QThread):
                 #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 frame=crop2_169(frame)
             frame = self.frame_processor(frame, ft)
+            if self.frame_processor.debug and self.frame_processor.last_debug is not None:
+                frame = compose_debug_panel(frame, self.frame_processor.last_debug)
+            if self.save_next:
+                self.save_next = False
+                os.makedirs('debug_frames', exist_ok=True)
+                path = os.path.join('debug_frames', time.strftime('%Y%m%d_%H%M%S') + '_%d.png' % ft.frame_id)
+                cv2.imwrite(path, frame)
+                print('saved', path)
             with ft.stage('qimage'):
                 if self.marker:
                     frame = draw_latency_marker(frame.copy(), ft.frame_id, t_cap)
@@ -121,7 +132,8 @@ class VitonThread(QThread):
         self.lat.close()
 
 class CameraApp(QMainWindow):
-    def __init__(self, garment_name_list, camera=None, ckpt_dir=None, rotate='cw', latency_csv=None, marker=False):
+    def __init__(self, garment_name_list, camera=None, ckpt_dir=None, rotate='cw', latency_csv=None, marker=False,
+                 debug=False):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -193,7 +205,7 @@ class CameraApp(QMainWindow):
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
-        self.viton_thread = VitonThread(garment_name_list, camera, ckpt_dir, rotate, latency_csv, marker)
+        self.viton_thread = VitonThread(garment_name_list, camera, ckpt_dir, rotate, latency_csv, marker, debug)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -201,7 +213,10 @@ class CameraApp(QMainWindow):
         if (event.type() == QEvent.KeyPress):
             # print(f'keypress obj: {obj}')
             if obj == self.list_widget:
-                self.list_widget.setCurrentRow(event.key()-48)
+                if Qt.Key_0 <= event.key() <= Qt.Key_9:
+                    self.list_widget.setCurrentRow(event.key()-48)
+                else:
+                    self.keyPressEvent(event)  # S (save) and Q/Esc (quit) also work while the list has focus
                 return True
         
         return super(CameraApp, self).eventFilter(obj, event)
@@ -222,6 +237,8 @@ class CameraApp(QMainWindow):
              self.list_widget.setCurrentRow(4)
         elif e.key() == Qt.Key_5:
              self.list_widget.setCurrentRow(5)
+        elif e.key() == Qt.Key_S:
+            self.viton_thread.save_next = True
         elif e.key() == Qt.Key_Q or e.key() == Qt.Key_Escape:
             print("Exiting application...")
             self.close()  # Triggers closeEvent
@@ -268,10 +285,12 @@ if __name__ == "__main__":
                         help='write per-frame stage timings and capture-to-display latency to this CSV')
     parser.add_argument('--latency_marker', action='store_true',
                         help='draw the frame id and capture time into the output, for filming the mirror')
+    parser.add_argument('--debug', action='store_true',
+                        help='show what the garment network sees (VM, SDP, alpha) next to the output; S saves a frame')
     args, qt_args = parser.parse_known_args()
     require_cuda()
     app = QApplication(sys.argv[:1] + qt_args)
     window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate,
-                       args.latency_csv, args.latency_marker)
+                       args.latency_csv, args.latency_marker, args.debug)
     window.show()
     sys.exit(app.exec_())
