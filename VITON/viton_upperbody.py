@@ -37,6 +37,7 @@ class FrameProcessor:
         self.lock = threading.Lock()
         self.debug = False       # when True, keep this frame's network inputs/outputs in self.last_debug
         self.last_debug = None
+        self._pristine = None
         print('Model devices:')
         report_devices({'BEV': self.smpl_regressor.regressor_model,
                         'DensePose': self.densepose_extractor.predictor.model})
@@ -81,9 +82,18 @@ class FrameProcessor:
         t.daemon = True
         t.start()
 
+    def _check_untouched(self, raw_image, stage):
+        # debug only: the camera frame must reach the compositor unchanged; report the stage that draws into it
+        if self._pristine is not None and not np.array_equal(self._pristine, raw_image):
+            changed = np.any(self._pristine != raw_image, axis=2)
+            print('WARNING: the camera frame was modified in place during stage "%s" (%d pixels changed)'
+                  % (stage, int(changed.sum())))
+            self._pristine = raw_image.copy()
+
     def __call__(self, input_frame, ft=NULL_TIMING):
         # ft: per-frame timing record (util/latency.py); stages are no-ops unless latency logging is on
         self.last_debug = None
+        self._pristine = input_frame.copy() if self.debug else None
         if self.viton_model is None:
             return input_frame
 
@@ -93,6 +103,7 @@ class FrameProcessor:
         with ft.stage('bev'):
             smpl_data = self.smpl_regressor.forward(raw_image, True, size=1.45,
                                                     roi_img_size=resolution)
+        self._check_untouched(raw_image, 'bev')
         if len(smpl_data) < 3:
             return input_frame
         smpl_param, trans2roi, inv_trans2roi = smpl_data
@@ -111,8 +122,10 @@ class FrameProcessor:
         with ft.stage('vm_render'):
             raw_vm = self.upper_body.render(v[0], height=height, width=width)
 
+        self._check_untouched(raw_image, 'vm_render')
         with ft.stage('densepose'):
             raw_IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False)
+        self._check_untouched(raw_image, 'densepose')
         if raw_IUV is None:
             return input_frame
         with ft.stage('inputs'):
@@ -143,11 +156,16 @@ class FrameProcessor:
                                        flags=cv2.INTER_LINEAR,
                                        borderMode=cv2.BORDER_CONSTANT,
                                        borderValue=(0,))
+        self._check_untouched(raw_image, 'inputs/generator/warp_back')
         with ft.stage('composite'):
             occlusion_mask = IUV2HandHeadMask(raw_IUV)
             composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
         if self.debug:
-            self.last_debug = {'vm': roi_vm, 'sdp': roi_dpi_img, 'alpha': roi_alpha,
-                               'occlusion': cv2.warpAffine(occlusion_mask, trans2roi, (resolution, resolution),
-                                                           flags=cv2.INTER_NEAREST)}
+            to_roi = lambda img, flags=cv2.INTER_LINEAR: cv2.warpAffine(img, trans2roi, (resolution, resolution), flags=flags)
+            self.last_debug = {'input': to_roi(raw_image), 'vm': roi_vm, 'sdp': roi_dpi_img,
+                               'garment': roi_target, 'alpha': roi_alpha,
+                               'occlusion': to_roi(occlusion_mask, cv2.INTER_NEAREST),
+                               # full-frame arrays, saved with S for offline analysis
+                               'raw': {'frame': raw_image, 'garment': raw_target_img, 'alpha': raw_alpha,
+                                       'occlusion': occlusion_mask, 'iuv': raw_IUV, 'output': composed_img}}
         return composed_img
