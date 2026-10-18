@@ -14,6 +14,8 @@ from composition.compositor import GarmentCompositor
 from util.densepose_util import IUV2SDP, IUV2HandHeadMask
 from util.cv2_trans_util import TemporalSmoothing
 from threading import Thread
+from util.latency import NULL_TIMING
+from util.gpu_check import report_devices
 
 
 class FrameProcessor:
@@ -33,6 +35,9 @@ class FrameProcessor:
         # removes jitter from noisy joints without misaligning the garment
         self.roi_smoothing = TemporalSmoothing(c=0.6)
         self.lock = threading.Lock()
+        print('Model devices:')
+        report_devices({'BEV': self.smpl_regressor.regressor_model,
+                        'DensePose': self.densepose_extractor.predictor.model})
 
         self.load_all = Thread(target=self.load_all_models, args=())
         self.load_all.daemon = True
@@ -62,7 +67,7 @@ class FrameProcessor:
                 self.load_one_models(self.garment_name_list[id])
             old_model = self.viton_model
             new_model = self.viton_model_list[id].to('cuda:0') if garment_id >= 0 else None
-            print("Finished")
+            print("Finished; garment network on", next(new_model.parameters()).device if new_model is not None else None)
             self.viton_model = new_model
             self.compositor = self.compositor_list[id] if garment_id >= 0 else None
             if old_model is not None and old_model is not new_model:
@@ -74,15 +79,17 @@ class FrameProcessor:
         t.daemon = True
         t.start()
 
-    def __call__(self, input_frame):
+    def __call__(self, input_frame, ft=NULL_TIMING):
+        # ft: per-frame timing record (util/latency.py); stages are no-ops unless latency logging is on
         if self.viton_model is None:
             return input_frame
 
         resolution = 512
         raw_image = input_frame
 
-        smpl_data = self.smpl_regressor.forward(raw_image, True, size=1.45,
-                                                roi_img_size=resolution)
+        with ft.stage('bev'):
+            smpl_data = self.smpl_regressor.forward(raw_image, True, size=1.45,
+                                                    roi_img_size=resolution)
         if len(smpl_data) < 3:
             return input_frame
         smpl_param, trans2roi, inv_trans2roi = smpl_data
@@ -98,40 +105,42 @@ class FrameProcessor:
 
         v = vertices
 
-        raw_vm = self.upper_body.render(v[0], height=height, width=width)
+        with ft.stage('vm_render'):
+            raw_vm = self.upper_body.render(v[0], height=height, width=width)
 
-        raw_IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False)
+        with ft.stage('densepose'):
+            raw_IUV = self.densepose_extractor.get_IUV(raw_image, isRGB=False)
         if raw_IUV is None:
             return input_frame
-        dpi_img = IUV2SDP(raw_IUV)
-        roi_dpi_img = cv2.warpAffine(dpi_img, trans2roi, (resolution, resolution), flags=cv2.INTER_LINEAR,
-                                     borderMode=cv2.BORDER_CONSTANT,
-                                     borderValue=(0, 0, 0))
-
-        roi_vm = cv2.warpAffine(raw_vm, trans2roi, (resolution, resolution), flags=cv2.INTER_LINEAR,
-                                borderMode=cv2.BORDER_CONSTANT,
-                                borderValue=(0, 0, 0))
-
-        vm_tensor = util.im2tensor(roi_vm) * 2.0 - 1.0
-        vm_tensor = vm_tensor[:, [2, 1, 0], :, :]
-        dp_tensor = util.im2tensor(roi_dpi_img) * 2.0 - 1.0
+        with ft.stage('inputs'):
+            dpi_img = IUV2SDP(raw_IUV)
+            roi_dpi_img = cv2.warpAffine(dpi_img, trans2roi, (resolution, resolution), flags=cv2.INTER_LINEAR,
+                                         borderMode=cv2.BORDER_CONSTANT,
+                                         borderValue=(0, 0, 0))
+            roi_vm = cv2.warpAffine(raw_vm, trans2roi, (resolution, resolution), flags=cv2.INTER_LINEAR,
+                                    borderMode=cv2.BORDER_CONSTANT,
+                                    borderValue=(0, 0, 0))
+            vm_tensor = util.im2tensor(roi_vm) * 2.0 - 1.0
+            vm_tensor = vm_tensor[:, [2, 1, 0], :, :]
+            dp_tensor = util.im2tensor(roi_dpi_img) * 2.0 - 1.0
         with self.lock:
             if self.viton_model is None:
                 return input_frame
             compositor = self.compositor
-            with torch.no_grad():
+            with ft.stage('generator'), torch.no_grad():
                 target_tensor = self.viton_model.forward(torch.cat([vm_tensor, dp_tensor], 1).cuda())
-        roi_target = util.tensor2im(target_tensor[0, [0, 1, 2], :, :], normalize=True, rgb=False)
-        roi_alpha = target_tensor[0, 3, :, :].clamp(min=0.0, max=1.0).cpu().numpy().astype(np.float32)
-
-        raw_target_img = cv2.warpAffine(roi_target, inv_trans2roi, (raw_image.shape[1], raw_image.shape[0]),
-                                        flags=cv2.INTER_LINEAR,
-                                        borderMode=cv2.BORDER_CONSTANT,
-                                        borderValue=(0, 0, 0))
-        raw_alpha = cv2.warpAffine(roi_alpha, inv_trans2roi, (raw_image.shape[1], raw_image.shape[0]),
-                                   flags=cv2.INTER_LINEAR,
-                                   borderMode=cv2.BORDER_CONSTANT,
-                                   borderValue=(0,))
-        occlusion_mask = IUV2HandHeadMask(raw_IUV)
-        composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
+        with ft.stage('warp_back'):
+            roi_target = util.tensor2im(target_tensor[0, [0, 1, 2], :, :], normalize=True, rgb=False)
+            roi_alpha = target_tensor[0, 3, :, :].clamp(min=0.0, max=1.0).cpu().numpy().astype(np.float32)
+            raw_target_img = cv2.warpAffine(roi_target, inv_trans2roi, (raw_image.shape[1], raw_image.shape[0]),
+                                            flags=cv2.INTER_LINEAR,
+                                            borderMode=cv2.BORDER_CONSTANT,
+                                            borderValue=(0, 0, 0))
+            raw_alpha = cv2.warpAffine(roi_alpha, inv_trans2roi, (raw_image.shape[1], raw_image.shape[0]),
+                                       flags=cv2.INTER_LINEAR,
+                                       borderMode=cv2.BORDER_CONSTANT,
+                                       borderValue=(0,))
+        with ft.stage('composite'):
+            occlusion_mask = IUV2HandHeadMask(raw_IUV)
+            composed_img = compositor(raw_image, raw_target_img, raw_alpha, occlusion_mask)
         return composed_img

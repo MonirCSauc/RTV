@@ -60,6 +60,8 @@ class SMPL_Regressor:
     def create_bev_model(self,fix_body=False):
         settings = bev.main.default_settings
         settings.mode = 'video'
+        if torch.cuda.is_available():
+            settings.GPU = 0  # run BEV on the first GPU
         bev_model = MyBEV(settings,fix_body=fix_body)
         return bev_model
 
