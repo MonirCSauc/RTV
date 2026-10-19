@@ -87,13 +87,24 @@ def gaussian_blur(img, sigma):
     return x[0, 0]
 
 
-def compose(frame, garment, alpha, occlusion, premultiplied, alpha_low=0.1, alpha_high=0.9, global_alpha=1.0):
+def compose(frame, garment, alpha, occlusion, premultiplied, alpha_low=0.1, alpha_high=0.9, global_alpha=1.0,
+            blend='soft'):
     """GarmentCompositor on the GPU.
 
     frame: uint8 (H, W, 3); garment: float (H, W, 3) in 0..255; alpha: float (H, W) in 0..1;
     occlusion: float (H, W) in {0, 1} or None. Returns uint8 (H, W, 3) on the same device.
+    blend='original' reproduces the repository's original naive_overlay_alpha: hard mask (alpha > 128/255),
+    eroded by one pixel, garment colour used as is.
     """
     alpha = alpha.clamp(0.0, 1.0)
+    if blend == 'original':
+        hard = (torch.floor(alpha * 255.0) > 128).float()[None, None]
+        a = -F.max_pool2d(-hard, 3, stride=1, padding=1)[0, 0] * global_alpha  # erosion with a 3x3 square
+        if occlusion is not None:
+            a = a * (1.0 - occlusion)
+        a = a[..., None]
+        out = garment.floor() * a + frame.float() * (1.0 - a)
+        return out.round().clamp(0, 255).to(torch.uint8)
     if premultiplied:
         valid = (alpha > 1e-3)[..., None]
         garment = (garment / alpha.clamp(min=1e-3)[..., None]).clamp(0, 255) * valid

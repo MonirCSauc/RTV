@@ -24,7 +24,7 @@ class FrameProcessor:
     BODY_SHAPES = {'train': True, 'zero': 'all', 'estimated': False}
 
     def __init__(self, garment_name_list, ckpt_dir=None, dp_score=0.5, body_shape='estimated',
-                 keep_garments_on_gpu=False, keep_in_front='hands_head'):
+                 keep_garments_on_gpu=False, keep_in_front='hands_head', blend='soft'):
         self.smpl_regressor = SMPL_Regressor(use_bev=True, fix_body=self.BODY_SHAPES[body_shape])
         self.viton_model = None
         self.compositor = None
@@ -62,6 +62,7 @@ class FrameProcessor:
         # body parts drawn in front of the garment; from behind, DensePose's head is the back of the head and hair,
         # which can cut into a garment's back collar
         self.keep_in_front = gpu_ops.KEEP_IN_FRONT[keep_in_front]
+        self.blend = blend  # 'soft' (anti-aliased edges) or 'original' (the repository's hard 50% mask)
         self.load_all = Thread(target=self.load_all_models, args=())
         self.load_all.daemon = True
         self.load_all.start()
@@ -140,7 +141,7 @@ class FrameProcessor:
     def _compose(self, frame, garment, alpha, occlusion, compositor):
         # blend on the GPU (composition/gpu_ops.py mirrors GarmentCompositor); one copy of the result to the CPU
         out = gpu_ops.compose(torch.from_numpy(frame).to(self.device), garment, alpha, occlusion,
-                              compositor.premultiplied, compositor.alpha_low, compositor.alpha_high)
+                              compositor.premultiplied, compositor.alpha_low, compositor.alpha_high, blend=self.blend)
         return out.cpu().numpy()
 
     def _forget_person(self):

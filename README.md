@@ -68,6 +68,7 @@ Useful options:
 
 - `--body_shape {estimated,train,zero}`: body shape of the rendered 3D body. `estimated` (default) follows the customer's own shape; `train` (average shape, as in the training data) and `zero` are there for experiments and can make the garment narrower or wider than the person.
 - `--keep_in_front {hands_head,hands,none}`: body parts drawn in front of the garment (default hands and head). Seen from behind, DensePose's head is the back of the head and hair, which can cut into a garment's back collar; `hands` keeps only the hands in front.
+- `--blend {soft,original}`: garment edges. `soft` (default) blends anti-aliased edges without a dark outline; `original` uses the repository's original hard 50% mask. `--blend original --keep_in_front none` draws exactly like the original code.
 - `--keep_garments_on_gpu`: keep every garment network on the GPU (~0.8 GB each) so switching is instant. Only with plenty of GPU memory: on Windows, running short does not fail but silently slows every frame.
 
 - `--lock_camera`: let the camera adjust for about a second, then freeze its exposure and white balance, so changing store light or people walking by do not make the image (and the body estimates) flicker. Works for USB and virtual cameras whose driver supports it (the result is printed); for a phone stream, lock exposure in the phone app.
