@@ -24,6 +24,8 @@ from util.debug_view import compose_debug_panel, save_debug
 
 DEFAULT_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
                     'jin_17_vmsdp2ta', 'jin_18_vmsdp2ta', 'jin_22_vmsdp2ta']
+# the phone running DroidCam on the lab network; --camera or RTV_CAMERA override it ('auto' = first local camera)
+DEFAULT_CAMERA = 'http://10.40.36.31:4747/video'
 ROTATIONS = {'cw': cv2.ROTATE_90_CLOCKWISE, 'ccw': cv2.ROTATE_90_COUNTERCLOCKWISE, '180': cv2.ROTATE_180, 'none': None}
 
 
@@ -38,8 +40,8 @@ class VitonThread(QThread):
             print("Failed to open the selected camera.")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if lock_camera:
-            self.lock_exposure_and_white_balance(stream=bool(camera or os.environ.get('RTV_CAMERA', '')) and
-                                                 not (camera or os.environ.get('RTV_CAMERA', '')).isdigit())
+            src = camera or os.environ.get('RTV_CAMERA') or DEFAULT_CAMERA
+            self.lock_exposure_and_white_balance(stream=src != 'auto' and not src.isdigit())
         print("Camera resolution: %dx%d" % (self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
         self.running = True
         self.rotate = ROTATIONS[rotate]
@@ -61,7 +63,9 @@ class VitonThread(QThread):
 
     def get_camera(self, camera=None):
         # --camera / RTV_CAMERA: a camera index, or a stream URL such as DroidCam's http://<phone-ip>:4747/video
-        src = camera or os.environ.get('RTV_CAMERA')
+        src = camera or os.environ.get('RTV_CAMERA') or DEFAULT_CAMERA
+        if src == 'auto':
+            src = None
         if src and not src.isdigit():
             cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
             if not cap.isOpened():
@@ -340,8 +344,8 @@ class CameraApp(QMainWindow):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--camera', default=None,
-                        help='camera index or stream URL (e.g. http://<phone-ip>:4747/video for DroidCam); '
-                             'defaults to RTV_CAMERA, then the first camera that delivers frames')
+                        help='camera index, stream URL, or "auto" (first local camera that delivers frames); '
+                             'defaults to RTV_CAMERA, then ' + DEFAULT_CAMERA)
     parser.add_argument('--garments', default=','.join(DEFAULT_GARMENTS),
                         help='comma-separated checkpoint names inside --ckpt_dir')
     parser.add_argument('--ckpt_dir', default='./rtv_ckpts', help='directory holding the garment checkpoints')
