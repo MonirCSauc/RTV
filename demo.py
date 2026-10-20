@@ -1,5 +1,6 @@
 import sys
 import os
+import argparse
 
 #sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 import cv2
@@ -17,9 +18,12 @@ from VITON.viton_fullbody_seq import FullBodySeqFrameProcessor
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage)
 
-    def __init__(self):
+    def __init__(self, source=0, rotate='cw'):
         super().__init__()
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture(source)
+        if not self.cap.isOpened():
+            raise RuntimeError(f"Cannot open camera source: {source}")
+        self.rotate = rotate
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.running = True
         self.frame_processor = FullBodySeqFrameProcessor('coat_seq_vmssdp2ta_576')
@@ -33,7 +37,10 @@ class VitonThread(QThread):
             ret, frame = self.cap.read()
 
             if ret:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                if self.rotate == 'cw':
+                    frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                elif self.rotate == 'ccw':
+                    frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
                 ## ichao: remove flip (Nov 13, 2024)
                 frame=cv2.flip(frame, 1)
                 frame=resize_img(frame,max_height=1024)
@@ -53,7 +60,7 @@ class VitonThread(QThread):
         self.cap.release()
 
 class CameraApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, source=0, rotate='cw'):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -83,7 +90,7 @@ class CameraApp(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
-        self.viton_thread = VitonThread()
+        self.viton_thread = VitonThread(source, rotate)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -99,7 +106,14 @@ class CameraApp(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = CameraApp()
+    parser = argparse.ArgumentParser()
+    # Camera index (e.g. 0, 1) or stream URL (e.g. DroidCam: http://<phone-ip>:4747/video)
+    parser.add_argument('--camera', type=str, default='0')
+    parser.add_argument('--rotate', choices=['cw', 'ccw', 'none'], default='cw')
+    args, qt_args = parser.parse_known_args()
+    source = int(args.camera) if args.camera.isdigit() else args.camera
+
+    app = QApplication(sys.argv[:1] + qt_args)
+    window = CameraApp(source, args.rotate)
     window.show()
     sys.exit(app.exec_())
