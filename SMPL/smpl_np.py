@@ -1,7 +1,9 @@
 import pickle
 import os
+import sys
 
-os.environ["PYOPENGL_PLATFORM"] = "egl"
+if sys.platform.startswith("linux"):
+    os.environ["PYOPENGL_PLATFORM"] = "egl"
 import numpy as np
 #import pyrender
 import trimesh

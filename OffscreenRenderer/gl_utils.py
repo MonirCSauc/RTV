@@ -1,12 +1,19 @@
 from typing import Tuple
 import ctypes
+import sys
 
 import numpy as np
-import OpenGL.EGL as egl
-from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
-from OpenGL.EGL.EXT.device_base import egl_get_devices
 from OpenGL import error
 from OpenGL.GL import *
+
+# Headless EGL is only available on Linux; elsewhere (e.g. Windows) a hidden GLFW window provides the context.
+USE_EGL = sys.platform.startswith('linux')
+if USE_EGL:
+    import OpenGL.EGL as egl
+    from OpenGL.raw.EGL.EXT.platform_device import EGL_PLATFORM_DEVICE_EXT
+    from OpenGL.EGL.EXT.device_base import egl_get_devices
+else:
+    import glfw
 
 
 def create_initialized_headless_egl_display():
@@ -41,6 +48,9 @@ def create_opengl_context(surface_size: Tuple[int, int]):
         surface_size: (width, height), size of the offscreen rendering surface.
 
     """
+    if not USE_EGL:
+        return create_glfw_context(surface_size)
+
     egl_display = create_initialized_headless_egl_display()
 
     if egl_display == egl.EGL_NO_DISPLAY:
@@ -85,6 +95,30 @@ def create_opengl_context(surface_size: Tuple[int, int]):
     egl.eglMakeCurrent(egl_display, egl_surf, egl_surf, egl_context)
 
     return egl_display, egl_surf, egl_context
+
+
+def create_glfw_context(surface_size: Tuple[int, int]):
+    """Create an OpenGL context backed by a hidden GLFW window and make it current.
+
+    Returns (None, window, None) to match the (display, surface, context) tuple of the EGL path.
+    """
+    if not glfw.init():
+        raise RuntimeError('Cannot initialize GLFW.')
+    glfw.window_hint(glfw.VISIBLE, glfw.FALSE)
+    width, height = surface_size
+    window = glfw.create_window(width, height, 'offscreen', None, None)
+    if not window:
+        raise RuntimeError('Cannot create a hidden GLFW window for offscreen rendering.')
+    glfw.make_context_current(window)
+    return None, window, None
+
+
+def destroy_opengl_context(display, surface, context):
+    if USE_EGL:
+        egl.eglDestroySurface(display, surface)
+        egl.eglDestroyContext(display, context)
+    else:
+        glfw.destroy_window(surface)
 
 
 def init_frame_buffer(frame_image: np.ndarray, num_samples: int = 16):
