@@ -1,5 +1,6 @@
 import sys
 import os
+import argparse
 
 #sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 import cv2
@@ -19,8 +20,9 @@ from util.camera_util import list_available_cameras
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage)
 
-    def __init__(self,garment_id_list):
+    def __init__(self,garment_id_list, camera_url=None):
         super().__init__()
+        self.camera_url = camera_url
         self.cap = self.get_camera()
         if not self.cap.isOpened():
             print("Failed to open the selected camera.")
@@ -33,6 +35,10 @@ class VitonThread(QThread):
         self.frame_processor.set_target_garment(id)
 
     def get_camera(self):
+        if self.camera_url:
+            print(f"Opening network camera: {self.camera_url}")
+            return cv2.VideoCapture(self.camera_url)
+
         cap = cv2.VideoCapture(1)
 
         if not cap.isOpened():
@@ -63,7 +69,7 @@ class VitonThread(QThread):
         self.cap.release()
 
 class CameraApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, camera_url=None):
         super().__init__()
         self.setWindowTitle("Virtual Try-On")
         self.setGeometry(100, 100, 800, 600)
@@ -142,7 +148,7 @@ class CameraApp(QMainWindow):
         for i in range(len(garment_name_list)):
             garment_name_list[i] = garment_name_list[i]+'_vmsdp2ta'
 
-        self.viton_thread = VitonThread(garment_name_list)
+        self.viton_thread = VitonThread(garment_name_list, camera_url)
         self.viton_thread.frameCaptured.connect(self.update_image)
         self.viton_thread.start()
 
@@ -201,7 +207,16 @@ class CameraApp(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = CameraApp()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--droidcam_ip', type=str, default=None, help='IP address of the DroidCam phone, e.g. 10.40.43.246')
+    parser.add_argument('--droidcam_port', type=int, default=4747, help='DroidCam port (default 4747)')
+    args, qt_args = parser.parse_known_args()
+
+    camera_url = None
+    if args.droidcam_ip:
+        camera_url = f"http://{args.droidcam_ip}:{args.droidcam_port}/video"
+
+    app = QApplication(sys.argv[:1] + qt_args)
+    window = CameraApp(camera_url)
     window.show()
     sys.exit(app.exec_())
