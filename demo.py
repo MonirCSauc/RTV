@@ -51,7 +51,8 @@ class VitonThread(QThread):
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 height, width, channel = frame.shape
                 step = channel * width
-                q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888)
+                # copy: the numpy buffer may be freed before the GUI thread draws it
+                q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888).copy()
                 self.frameCaptured.emit(q_img)
 
 

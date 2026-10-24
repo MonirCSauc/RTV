@@ -1,5 +1,8 @@
 import sys
 import os
+import argparse
+import threading
+import time
 
 #sys.path.append(os.path.abspath(os.path.join(__file__, "..", "..")))
 import cv2
@@ -15,6 +18,9 @@ from util.image_warp import crop2_169, resize_img
 from VITON.viton_upperbody import FrameProcessor
 from util.camera_util import list_available_cameras
 
+# Set from --droidcam_ip/--droidcam_port; None means try local cameras 1 then 0
+CAMERA_SOURCE = None
+
 
 class VitonThread(QThread):
     frameCaptured = pyqtSignal(QImage)
@@ -27,39 +33,62 @@ class VitonThread(QThread):
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         self.running = True
         self.frame_processor = FrameProcessor(garment_id_list)
+        # Network streams (DroidCam) ignore BUFFERSIZE, so a reader thread keeps
+        # only the newest frame; otherwise stale frames queue up and latency grows
+        self.latest_frame = None
+        self.frame_ready = threading.Event()
+        self.reader = threading.Thread(target=self.read_frames, daemon=True)
+        self.reader.start()
 
     def set_taregt_id(self, id):
         print(id)
         self.frame_processor.set_target_garment(id)
 
     def get_camera(self):
+        if CAMERA_SOURCE is not None:
+            return cv2.VideoCapture(CAMERA_SOURCE)
         cap = cv2.VideoCapture(1)
 
         if not cap.isOpened():
             cap = cv2.VideoCapture(0)
         return cap
 
-    def run(self):
+    def read_frames(self):
         while self.running:
             ret, frame = self.cap.read()
-
             if ret:
-                frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
-                ## ichao: remove flip (Nov 13, 2024)
-                frame=cv2.flip(frame, 1)
-                frame=resize_img(frame,max_height=1024)
-                #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
-                frame=crop2_169(frame)
-                frame = self.frame_processor(frame)
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                height, width, channel = frame.shape
-                step = channel * width
-                q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888)
-                self.frameCaptured.emit(q_img)
+                self.latest_frame = frame
+                self.frame_ready.set()
+
+    def run(self):
+        n, t_proc, t_start = 0, 0.0, time.perf_counter()
+        while self.running:
+            if not self.frame_ready.wait(timeout=0.5):
+                continue
+            self.frame_ready.clear()
+            frame = self.latest_frame
+            t = time.perf_counter()
+            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+            ## ichao: remove flip (Nov 13, 2024)
+            frame=cv2.flip(frame, 1)
+            frame=resize_img(frame,max_height=1024)
+            #frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+            frame=crop2_169(frame)
+            frame = self.frame_processor(frame)
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            height, width, channel = frame.shape
+            step = channel * width
+            q_img = QImage(frame.data, width, height, step, QImage.Format_RGB888).copy()
+            self.frameCaptured.emit(q_img)
+            n, t_proc = n + 1, t_proc + time.perf_counter() - t
+            if n == 30:
+                print(f"processing {t_proc / n * 1000:.1f} ms/frame, {n / (time.perf_counter() - t_start):.1f} FPS")
+                n, t_proc, t_start = 0, 0.0, time.perf_counter()
 
 
     def stop(self):
         self.running = False
+        self.reader.join()
         self.cap.release()
 
 class CameraApp(QMainWindow):
@@ -201,7 +230,14 @@ class CameraApp(QMainWindow):
         event.accept()
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--droidcam_ip', type=str, default=None)
+    parser.add_argument('--droidcam_port', type=int, default=4747)
+    args, qt_args = parser.parse_known_args()
+    if args.droidcam_ip:
+        CAMERA_SOURCE = f"http://{args.droidcam_ip}:{args.droidcam_port}/video"
+
+    app = QApplication(sys.argv[:1] + qt_args)
     window = CameraApp()
     window.show()
     sys.exit(app.exec_())
