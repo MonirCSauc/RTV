@@ -69,6 +69,44 @@ def hand_head_mask(iuv, dilate_px=2, parts=(3, 4, 23, 24)):
     return mask[0, 0]
 
 
+def garment_support(roi_vm, roi_sdp, radius=30, feather=7):
+    """Where a garment may appear in the network's 512 crop: the body (VM render or DensePose), grown by `radius`.
+
+    roi_vm, roi_sdp: (1, 3, H, W) network inputs (0..255). Returns float (1, 1, H, W) in 0..1. A network outside the
+    poses it was trained on (e.g. lab_03 with the arm raised on one side) can output alpha all over the background;
+    on its own training poses every garment's alpha stays within ~30 px of this body mask (at 512x512).
+    """
+    body = ((roi_vm.amax(1, keepdim=True) > 0) | (roi_sdp.amax(1, keepdim=True) > 0)).float()
+    k = 2 * radius + 1  # square dilation, separable
+    body = F.max_pool2d(body, (1, k), stride=1, padding=(0, radius))
+    body = F.max_pool2d(body, (k, 1), stride=1, padding=(radius, 0))
+    if feather > 0:  # soft edge, so a garment touching the limit fades instead of being cut
+        f = 2 * feather + 1
+        body = F.avg_pool2d(body, f, stride=1, padding=feather, count_include_pad=False)
+    return body
+
+
+def garment_core(alpha, roi_vm, threshold=0.5, grow=8):
+    """Keep only the garment the body wears: confident regions (alpha > threshold) that touch the VM body render,
+    grown by `grow` px for the soft edge. alpha: (1, 1, H, W); returns float (1, 1, H, W) in {0, 1}.
+
+    The ghost a network makes outside its training poses is mostly faint (alpha < 0.5) and where it is not, it forms
+    islands that do not touch the body; a real garment's confident part always overlaps the body render. Unlike
+    keeping just the largest region, this keeps a sleeve that a raised arm separates from the torso.
+    """
+    core = (alpha[0, 0] > threshold).to(torch.uint8).cpu().numpy()
+    n, labels = cv2.connectedComponents(core, connectivity=8)
+    if n > 1:
+        body = (roi_vm[0].amax(0) > 0).cpu().numpy()
+        touching = np.zeros(n, bool)
+        touching[np.unique(labels[body & (core > 0)])] = True
+        touching[0] = False
+        core = touching[labels].astype(np.uint8)
+    k = 2 * grow + 1
+    core = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    return torch.from_numpy(core).to(alpha.device, torch.float32)[None, None]
+
+
 _GAUSS = {}
 
 

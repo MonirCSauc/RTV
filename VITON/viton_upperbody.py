@@ -24,7 +24,7 @@ class FrameProcessor:
     BODY_SHAPES = {'train': True, 'zero': 'all', 'estimated': False}
 
     def __init__(self, garment_name_list, ckpt_dir=None, dp_score=0.5, body_shape='estimated',
-                 keep_garments_on_gpu=False, keep_in_front='hands_head', blend='soft'):
+                 keep_garments_on_gpu=False, keep_in_front='hands_head', blend='soft', alpha_gate=30):
         self.smpl_regressor = SMPL_Regressor(use_bev=True, fix_body=self.BODY_SHAPES[body_shape])
         self.viton_model = None
         self.compositor = None
@@ -63,6 +63,7 @@ class FrameProcessor:
         # which can cut into a garment's back collar
         self.keep_in_front = gpu_ops.KEEP_IN_FRONT[keep_in_front]
         self.blend = blend  # 'soft' (anti-aliased edges) or 'original' (the repository's hard 50% mask)
+        self.alpha_gate = alpha_gate  # px (in the 512 crop) the garment may extend beyond the body; 0 = off
         self.load_all = Thread(target=self.load_all_models, args=())
         self.load_all.daemon = True
         self.load_all.start()
@@ -244,9 +245,15 @@ class FrameProcessor:
             with ft.stage('generator'), torch.no_grad():
                 target_tensor = self.viton_model.forward(torch.cat([vm_tensor, dp_tensor], 1))
         with ft.stage('warp_back'):
+            net_alpha = target_tensor[:, 3:4].clamp(0.0, 1.0)
+            # keep the garment near the body: a network outside its training poses can spread alpha over the
+            # whole crop, which shows as a dark, blocky ghost on the background
+            roi_alpha = net_alpha
+            if self.alpha_gate > 0:
+                roi_alpha = (net_alpha * gpu_ops.garment_support(roi_vm, roi_sdp, self.alpha_gate)
+                             * gpu_ops.garment_core(net_alpha, roi_vm))
             # BGR colour in 0..255 and alpha in 0..1, warped from the 512 crop back onto the camera frame
-            roi_out = torch.cat([((target_tensor[:, [2, 1, 0]] + 1.0) / 2.0 * 255.0).clamp(0, 255),
-                                 target_tensor[:, 3:4].clamp(0.0, 1.0)], 1)
+            roi_out = torch.cat([((target_tensor[:, [2, 1, 0]] + 1.0) / 2.0 * 255.0).clamp(0, 255), roi_alpha], 1)
             raw_out = gpu_ops.warp_affine(roi_out, inv_trans2roi, height, width)[0]
             garment, alpha = raw_out[:3].permute(1, 2, 0), raw_out[3]
         self._check_untouched(raw_image, 'inputs/generator/warp_back')
@@ -265,6 +272,7 @@ class FrameProcessor:
                                'sdp': np_img(roi_sdp[0].permute(1, 2, 0)),
                                'garment': np_img(roi_out[0, :3].permute(1, 2, 0)),
                                'alpha': roi_out[0, 3].cpu().numpy(),
+                               'alpha_net': net_alpha[0, 0].cpu().numpy(),  # before the body gate
                                'occlusion': to_roi(occlusion_mask, cv2.INTER_NEAREST),
                                # full-frame arrays, saved with S for offline analysis
                                'raw': {'frame': raw_image, 'garment': np_img(garment), 'alpha': alpha.cpu().numpy(),

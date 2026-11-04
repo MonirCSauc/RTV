@@ -24,13 +24,16 @@ def compose_debug_panel(output, debug):
     alpha = np.clip(debug['alpha'], 0, 1)
     # square root brightens faint alpha, so weak garment "ghosts" are visible; red: protected hands/face
     alpha_view = cv2.cvtColor((np.sqrt(alpha) * 255).astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    if 'alpha_net' in debug:  # network alpha the body gate removed, in blue
+        removed = np.clip(debug['alpha_net'] - alpha, 0, 1) > 0.1
+        alpha_view[removed] = (255, 80, 0)
     alpha_view[debug['occlusion'] > 127] = (0, 0, 255)
     pad = lambda col: np.vstack([col, np.zeros((h - col.shape[0], size, 3), np.uint8)])
     left = pad(np.vstack([_tile(debug['input'], size, 'camera input'),
                           _tile(debug['vm'], size, 'VM (BEV body)'),
                           _tile(debug['sdp'], size, 'SDP (DensePose)')]))
     right = pad(np.vstack([_tile(debug['garment'], size, 'garment colour'),
-                           _tile(alpha_view, size, 'sqrt(alpha), red=kept'),
+                           _tile(alpha_view, size, 'sqrt(alpha) red=kept blue=gated'),
                            np.zeros((size, size, 3), np.uint8)]))
     return np.hstack([output, left, right])
 
