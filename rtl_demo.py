@@ -25,7 +25,7 @@ from util.debug_view import compose_debug_panel, save_debug
 DEFAULT_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
                     'jin_17_vmsdp2ta', 'jin_18_vmsdp2ta', 'jin_22_vmsdp2ta']
 # the phone running DroidCam on the lab network; --camera or RTV_CAMERA override it ('auto' = first local camera)
-DEFAULT_CAMERA = 'http://10.40.36.31:4747/video'
+DEFAULT_CAMERA = 'http://10.40.33.34:4747/video'
 ROTATIONS = {'cw': cv2.ROTATE_90_CLOCKWISE, 'ccw': cv2.ROTATE_90_COUNTERCLOCKWISE, '180': cv2.ROTATE_180, 'none': None}
 
 
