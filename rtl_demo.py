@@ -15,15 +15,19 @@ from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
 
 from util.image_warp import crop2_169
 
-from VITON.viton_upperbody import FrameProcessor
+from VITON.frame_processor import FrameProcessor
+from VITON.options import add_pipeline_arguments, processor_options
 from util.camera_util import list_available_cameras
 from util.latency import LatencyRecorder, now, draw_latency_marker
 from util.gpu_check import require_cuda
 from util.debug_view import compose_debug_panel, save_debug
 
 
-DEFAULT_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
-                    'jin_17_vmsdp2ta', 'jin_18_vmsdp2ta', 'jin_22_vmsdp2ta']
+# upper-body garments (per-frame networks) and full-body garments (recurrent networks); both run in one pipeline
+UPPER_GARMENTS = ['lab_03_vmsdp2ta', 'lab_04_vmsdp2ta', 'lab_07_vmsdp2ta',
+                  'jin_17_vmsdp2ta', 'jin_18_vmsdp2ta', 'jin_22_vmsdp2ta']
+FULLBODY_GARMENTS = ['coat_seq_vmssdp2ta_576', 'han_seq_vmssdp2ta_576']
+DEFAULT_GARMENTS = UPPER_GARMENTS + FULLBODY_GARMENTS
 # the phone running DroidCam on the lab network; --camera or RTV_CAMERA override it ('auto' = first local camera)
 DEFAULT_CAMERA = 'http://10.40.33.34:4747/video'
 ROTATIONS = {'cw': cv2.ROTATE_90_CLOCKWISE, 'ccw': cv2.ROTATE_90_COUNTERCLOCKWISE, '180': cv2.ROTATE_180, 'none': None}
@@ -36,6 +40,8 @@ class VitonThread(QThread):
                  processor_options=None,lock_camera=False):
         super().__init__()
         self.cap = self.get_camera(camera)
+        source = camera or os.environ.get('RTV_CAMERA') or DEFAULT_CAMERA
+        self.file_fps = (self.cap.get(cv2.CAP_PROP_FPS) or 30.0) if os.path.isfile(source) else None
         if not self.cap.isOpened():
             print("Failed to open the selected camera.")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -50,6 +56,7 @@ class VitonThread(QThread):
         self.marker = marker
         self.frame_processor = FrameProcessor(garment_id_list, ckpt_dir=ckpt_dir, **(processor_options or {}))
         self.frame_processor.debug = debug
+        self.n_saved = 0
         self.save_next = False  # set by the S key: save the next displayed frame to ./debug_frames/
         # keep only the newest camera frame, so slow processing never shows stale (laggy, smeared) frames
         self.latest_frame = None
@@ -58,7 +65,6 @@ class VitonThread(QThread):
         self.grabber.start()
 
     def set_taregt_id(self, id):
-        print(id)
         self.frame_processor.set_target_garment(id)
 
     def get_camera(self, camera=None):
@@ -140,15 +146,24 @@ class VitonThread(QThread):
         return None
 
     def grab_frames(self):
+        # a video file given as --camera plays in real time and repeats, as a stand-in for a camera
+        frame_time = 1.0 / self.file_fps if self.file_fps else 0.0
+        next_time = now()
         while self.running:
             ret, frame = self.cap.read()
             t_cap = now()  # earliest software timestamp; exposure and transfer delay happen before this
             if not ret:
-                time.sleep(0.01)
+                if self.file_fps:
+                    self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                else:
+                    time.sleep(0.01)
                 continue
             self.lat.on_capture()
             with self.frame_lock:
                 self.latest_frame = (frame, t_cap)
+            if self.file_fps:
+                next_time = max(next_time + frame_time, now() - frame_time)
+                time.sleep(max(0.0, next_time - now()))
 
     def run(self):
         while self.running:
@@ -171,12 +186,14 @@ class VitonThread(QThread):
                 # one working size for every camera (models and training data use 1024-high frames)
                 frame=cv2.resize(frame, (576, 1024),
                                  interpolation=cv2.INTER_CUBIC if frame.shape[0] < 1024 else cv2.INTER_AREA)
-            frame = self.frame_processor(frame, ft)
+            # t_cap: the filters that steady the body work in real time, so they need when the frame was taken
+            frame = self.frame_processor(frame, ft, t=t_cap)
             if self.frame_processor.debug and self.frame_processor.last_debug is not None:
                 frame = compose_debug_panel(frame, self.frame_processor.last_debug)
             if self.save_next:
                 self.save_next = False
-                path = os.path.join('debug_frames', time.strftime('%Y%m%d_%H%M%S') + '_%d.png' % ft.frame_id)
+                self.n_saved += 1  # several saves within one second must not overwrite each other
+                path = os.path.join('debug_frames', time.strftime('%Y%m%d_%H%M%S') + '_%03d.png' % self.n_saved)
                 save_debug(path, frame, self.frame_processor.last_debug)
                 print('saved', path, '(+ .npz with the full-frame arrays)' if self.frame_processor.last_debug else '')
             with ft.stage('qimage'):
@@ -248,7 +265,7 @@ class CameraApp(QMainWindow):
             if os.path.exists(icon_path):
                 item.setIcon(QIcon(icon_path))
             else:
-                item.setText(garment)
+                item.setText(garment.split('_vms')[0].replace('_seq', ' (full body)'))
             item.setData(Qt.UserRole, i)
             self.list_widget.addItem(item)
         #for i in range(9):
@@ -282,10 +299,9 @@ class CameraApp(QMainWindow):
         if (event.type() == QEvent.KeyPress):
             # print(f'keypress obj: {obj}')
             if obj == self.list_widget:
-                if Qt.Key_0 <= event.key() <= Qt.Key_9:
-                    self.list_widget.setCurrentRow(event.key()-48)
-                else:
-                    self.keyPressEvent(event)  # S (save) and Q/Esc (quit) also work while the list has focus
+                if event.key() in (Qt.Key_Up, Qt.Key_Down, Qt.Key_PageUp, Qt.Key_PageDown):
+                    return False  # the list handles its own navigation keys
+                self.keyPressEvent(event)  # digits, S (save) and Q/Esc (quit) also work while the list has focus
                 return True
         
         return super(CameraApp, self).eventFilter(obj, event)
@@ -293,19 +309,9 @@ class CameraApp(QMainWindow):
         
                 
     def keyPressEvent(self, e):
-        print(f'key: {e.key()}')
-        if e.key() == Qt.Key_0:
-            self.list_widget.setCurrentRow(0)
-        elif e.key() == Qt.Key_1:
-            self.list_widget.setCurrentRow(1)
-        elif e.key() == Qt.Key_2:
-            self.list_widget.setCurrentRow(2)
-        elif e.key() == Qt.Key_3:
-             self.list_widget.setCurrentRow(3)
-        elif e.key() == Qt.Key_4:
-             self.list_widget.setCurrentRow(4)
-        elif e.key() == Qt.Key_5:
-             self.list_widget.setCurrentRow(5)
+        if Qt.Key_0 <= e.key() <= Qt.Key_9:
+            if e.key() - Qt.Key_0 < self.list_widget.count():
+                self.list_widget.setCurrentRow(e.key() - Qt.Key_0)
         elif e.key() == Qt.Key_S:
             self.viton_thread.save_next = True
         elif e.key() == Qt.Key_Q or e.key() == Qt.Key_Escape:
@@ -313,7 +319,6 @@ class CameraApp(QMainWindow):
             self.close()  # Triggers closeEvent
 
     def on_selection_changed(self):
-        print('selection changed')
         selected_items = self.list_widget.selectedItems() 
         ## TODO: test if it can keep playing ...
         if selected_items:
@@ -341,13 +346,25 @@ class CameraApp(QMainWindow):
         print("Viton thread stopped")
         event.accept()
 
-if __name__ == "__main__":
+def available_garments(names, ckpt_dir):
+    # a checkpoint folder without weights (e.g. a git-lfs clone that was not pulled) would only fail on selection
+    found = [n for n in names if os.path.exists(os.path.join(ckpt_dir, n, 'latest_net_G.pth'))]
+    for n in names:
+        if n not in found:
+            print('Garment %s: no weights at %s, left out' % (n, os.path.join(ckpt_dir, n, 'latest_net_G.pth')))
+    return found
+
+
+def main(default_garments=DEFAULT_GARMENTS, default_select=None):
     parser = argparse.ArgumentParser()
     parser.add_argument('--camera', default=None,
                         help='camera index, stream URL, or "auto" (first local camera that delivers frames); '
                              'defaults to RTV_CAMERA, then ' + DEFAULT_CAMERA)
-    parser.add_argument('--garments', default=','.join(DEFAULT_GARMENTS),
-                        help='comma-separated checkpoint names inside --ckpt_dir')
+    parser.add_argument('--garments', default=','.join(default_garments),
+                        help='comma-separated checkpoint names inside --ckpt_dir (upper-body and full-body '
+                             'garments can be mixed)')
+    parser.add_argument('--select', type=int, default=default_select,
+                        help='garment to wear at start: its position in --garments, starting at 1 (default: none)')
     parser.add_argument('--ckpt_dir', default='./rtv_ckpts', help='directory holding the garment checkpoints')
     parser.add_argument('--rotate', default='cw', choices=list(ROTATIONS),
                         help='rotation applied to camera frames; cw suits a camera mounted sideways')
@@ -357,31 +374,20 @@ if __name__ == "__main__":
                         help='draw the frame id and capture time into the output, for filming the mirror')
     parser.add_argument('--debug', action='store_true',
                         help='show what the garment network sees (VM, SDP, alpha) next to the output; S saves a frame')
-    parser.add_argument('--dp_score', type=float, default=0.5,
-                        help='minimum DensePose detection score; weaker detections (posters, mannequins) are ignored')
-    parser.add_argument('--body_shape', default='estimated', choices=['estimated', 'train', 'zero'],
-                        help="body shape for the 3D body render: the customer's own estimate (default), as in "
-                             "training (average), or all shape parameters zeroed")
     parser.add_argument('--lock_camera', action='store_true',
                         help='after ~1 s of auto adjustment, freeze exposure and white balance (USB/virtual cameras)')
-    parser.add_argument('--keep_garments_on_gpu', action='store_true',
-                        help='keep all garment networks on the GPU (~0.8 GB each) for instant switching; only with '
-                             'plenty of GPU memory, otherwise Windows slows every frame down')
-    parser.add_argument('--keep_in_front', default='hands_head', choices=['hands_head', 'hands', 'none'],
-                        help='body parts drawn in front of the garment (hands_head, hands only, or none)')
-    parser.add_argument('--blend', default='soft', choices=['soft', 'original'],
-                        help="garment edges: 'soft' (anti-aliased, no dark outline) or 'original' (the repository's "
-                             "hard 50%% mask; with --keep_in_front none it draws exactly like the original code)")
-    parser.add_argument('--alpha_gate', type=int, default=30,
-                        help='pixels (in the 512 network crop) a garment may extend beyond the body; removes the '
-                             'background ghost a network produces outside its training poses (0 = off)')
+    add_pipeline_arguments(parser)
     args, qt_args = parser.parse_known_args()
-    processor_options = {'dp_score': args.dp_score, 'body_shape': args.body_shape,
-                         'keep_garments_on_gpu': args.keep_garments_on_gpu, 'keep_in_front': args.keep_in_front,
-                         'blend': args.blend, 'alpha_gate': args.alpha_gate}
     require_cuda()
+    garments = available_garments(args.garments.split(','), args.ckpt_dir)
     app = QApplication(sys.argv[:1] + qt_args)
-    window = CameraApp(args.garments.split(','), args.camera, args.ckpt_dir, args.rotate,
-                       args.latency_csv, args.latency_marker, args.debug, processor_options, args.lock_camera)
+    window = CameraApp(garments, args.camera, args.ckpt_dir, args.rotate,
+                       args.latency_csv, args.latency_marker, args.debug, processor_options(args), args.lock_camera)
+    if args.select is not None and 1 <= args.select <= len(garments):
+        window.list_widget.setCurrentRow(args.select)  # row 0 is "no garment"
     window.show()
     sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()

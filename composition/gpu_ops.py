@@ -14,8 +14,9 @@ import torch.nn.functional as F
 _grids = {}
 
 
-def warp_affine(src, M, out_h, out_w):
-    """Like cv2.warpAffine(src, M, (out_w, out_h)): src (N, C, H, W) float, M (2x3) maps src to output pixels."""
+def warp_affine(src, M, out_h, out_w, mode='bilinear'):
+    """Like cv2.warpAffine(src, M, (out_w, out_h)): src (N, C, H, W) float, M (2x3) maps src to output pixels.
+    mode: 'bilinear' (INTER_LINEAR) or 'nearest' (INTER_NEAREST)."""
     key = (out_h, out_w, src.device)
     if key not in _grids:
         ys, xs = torch.meshgrid(torch.arange(out_h, device=src.device, dtype=torch.float32),
@@ -28,7 +29,7 @@ def warp_affine(src, M, out_h, out_w):
     h, w = src.shape[-2:]
     # align_corners=True: -1 and 1 are the centres of the first and last source pixels, as in OpenCV
     grid = torch.stack([2.0 * sx / (w - 1) - 1.0, 2.0 * sy / (h - 1) - 1.0], -1)[None].expand(src.shape[0], -1, -1, -1)
-    return F.grid_sample(src, grid, mode='bilinear', padding_mode='zeros', align_corners=True)
+    return F.grid_sample(src, grid, mode=mode, padding_mode='zeros', align_corners=True)
 
 
 _TORSO_LEG = None
@@ -44,6 +45,42 @@ def iuv_to_sdp(iuv):
     sdp[..., 0] = torch.floor(sdp[..., 0] / 24 * 255)  # numpy: float -> uint8 truncates
     sdp[_TORSO_LEG[iuv[..., 0].long()]] = 255
     return sdp.permute(2, 0, 1)[None]
+
+
+_SSDP_LUT = None
+
+
+def iuv_to_ssdp(iuv):
+    """IUV2SSDP on the GPU: the body map without UV, one flat colour per body part group (paper Fig. 7d).
+    iuv: uint8 (H, W, 3) tensor -> float (1, 3, H, W) with values 0..255."""
+    global _SSDP_LUT
+    if _SSDP_LUT is None or _SSDP_LUT.device != iuv.device:
+        lut = torch.zeros(256, 3, device=iuv.device)
+        lut[[1, 2, 5, 6, 7, 9, 8, 10, 11, 13, 12, 14, 23, 24]] = 255.0          # torso, legs, feet, head
+        lut[[15, 17]] = torch.tensor([255.0, 0.0, 0.0], device=iuv.device)     # left upper arm
+        lut[[19, 21]] = torch.tensor([255.0, 255.0, 0.0], device=iuv.device)   # left lower arm
+        lut[[4]] = torch.tensor([255.0, 0.0, 255.0], device=iuv.device)        # left hand
+        lut[[16, 18]] = torch.tensor([0.0, 0.0, 255.0], device=iuv.device)     # right upper arm
+        lut[[20, 22]] = torch.tensor([0.0, 255.0, 255.0], device=iuv.device)   # right lower arm
+        lut[[3]] = torch.tensor([0.0, 255.0, 0.0], device=iuv.device)          # right hand
+        _SSDP_LUT = lut
+    return _SSDP_LUT[iuv[..., 0].long()].permute(2, 0, 1)[None]
+
+
+def temporal_filter(current, previous, threshold=0.12, floor=0.25):
+    """Suppress frame-to-frame flicker of the garment network's output without smearing real motion.
+
+    current, previous: (1, C, H, W) network outputs in the body-centred crop. Where the two differ little (the
+    small, random changes a per-frame network makes for a nearly unchanged input), the output moves only part of
+    the way to the new value; where they differ a lot (the body moved), the new value is taken as is.
+    threshold: difference (in network output units, range 2) treated as real change; floor: the smallest step.
+    """
+    if previous is None or previous.shape != current.shape:
+        return current
+    diff = (current - previous).abs().amax(1, keepdim=True)
+    diff = F.avg_pool2d(diff, 5, stride=1, padding=2)  # judge change over a small neighbourhood, not single pixels
+    k = (diff / threshold).clamp(floor, 1.0)
+    return previous + k * (current - previous)
 
 
 _ELLIPSE = {}
@@ -70,38 +107,49 @@ def hand_head_mask(iuv, dilate_px=2, parts=(3, 4, 23, 24)):
 
 
 def garment_support(roi_vm, roi_sdp, radius=30, feather=7):
-    """Where a garment may appear in the network's 512 crop: the body (VM render or DensePose), grown by `radius`.
+    """Where a garment may appear in the network's 512 crop: near the VM render (the upper-body template, a
+    long-sleeved top) and near the body DensePose sees. Returns float (1, 1, H, W) in 0..1.
 
-    roi_vm, roi_sdp: (1, 3, H, W) network inputs (0..255). Returns float (1, 1, H, W) in 0..1. A network outside the
-    poses it was trained on (e.g. lab_03 with the arm raised on one side) can output alpha all over the background;
-    on its own training poses every garment's alpha stays within ~30 px of this body mask (at 512x512).
+    roi_vm, roi_sdp: (1, 3, H, W) network inputs (0..255). A network outside the poses it was trained on (e.g.
+    lab_03 with the arm raised on one side) can output alpha all over the crop. An upper-body garment lies on the
+    torso and arms, which the VM render marks, so alpha over the legs, the head or the background is cut. The VM
+    render comes from the 3D body fit, which can sit a little off the real body, so its margin is wider than the
+    DensePose one; both must hold.
     """
-    body = ((roi_vm.amax(1, keepdim=True) > 0) | (roi_sdp.amax(1, keepdim=True) > 0)).float()
-    k = 2 * radius + 1  # square dilation, separable
-    body = F.max_pool2d(body, (1, k), stride=1, padding=(0, radius))
-    body = F.max_pool2d(body, (k, 1), stride=1, padding=(radius, 0))
+    def grown(mask, r):
+        k = 2 * r + 1  # square dilation, separable
+        mask = F.max_pool2d(mask, (1, k), stride=1, padding=(0, r))
+        return F.max_pool2d(mask, (k, 1), stride=1, padding=(r, 0))
+    vm = (roi_vm.amax(1, keepdim=True) > 0).float()
+    body = (vm.bool() | (roi_sdp.amax(1, keepdim=True) > 0)).float()
+    support = grown(body, radius) * grown(vm, radius + radius // 2)
     if feather > 0:  # soft edge, so a garment touching the limit fades instead of being cut
         f = 2 * feather + 1
-        body = F.avg_pool2d(body, f, stride=1, padding=feather, count_include_pad=False)
-    return body
+        support = F.avg_pool2d(support, f, stride=1, padding=feather, count_include_pad=False)
+    return support
 
 
-def garment_core(alpha, roi_vm, threshold=0.5, grow=8):
+def garment_core(alpha, roi_vm, threshold=0.85, grow=8, min_share=0.03):
     """Keep only the garment the body wears: confident regions (alpha > threshold) that touch the VM body render,
     grown by `grow` px for the soft edge. alpha: (1, 1, H, W); returns float (1, 1, H, W) in {0, 1}.
 
-    The ghost a network makes outside its training poses is mostly faint (alpha < 0.5) and where it is not, it forms
-    islands that do not touch the body; a real garment's confident part always overlaps the body render. Unlike
-    keeping just the largest region, this keeps a sleeve that a raised arm separates from the torso.
+    The ghost a network makes outside its training poses is faint, while a real garment is fully opaque except
+    for a thin soft edge. With camera noise parts of the ghost reach alpha 0.5-0.9 and join the garment, so the
+    core is cut at a high threshold. Confident islands that do not touch the body, or that are tiny next to the
+    garment (less than `min_share` of the largest region), are dropped. Unlike keeping just the largest region,
+    this keeps a sleeve that a raised arm separates from the torso.
     """
     core = (alpha[0, 0] > threshold).to(torch.uint8).cpu().numpy()
-    n, labels = cv2.connectedComponents(core, connectivity=8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(core, connectivity=8)
     if n > 1:
         body = (roi_vm[0].amax(0) > 0).cpu().numpy()
-        touching = np.zeros(n, bool)
-        touching[np.unique(labels[body & (core > 0)])] = True
-        touching[0] = False
-        core = touching[labels].astype(np.uint8)
+        keep = np.zeros(n, bool)
+        keep[np.unique(labels[body & (core > 0)])] = True
+        areas = stats[:, cv2.CC_STAT_AREA].astype(np.float64)
+        areas[0] = 0
+        keep &= areas >= min_share * areas.max()
+        keep[0] = False
+        core = keep[labels].astype(np.uint8)
     k = 2 * grow + 1
     core = cv2.dilate(core, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
     return torch.from_numpy(core).to(alpha.device, torch.float32)[None, None]

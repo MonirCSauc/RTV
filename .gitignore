@@ -5,6 +5,7 @@ rtv_ckpts/
 checkpoints/
 PerGarmentDatasets/
 debug_frames/
+test_data/
 *.csv
 *.npz
 *.mp4

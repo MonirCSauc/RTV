@@ -81,9 +81,11 @@ class ConvLSTM(nn.Module):
         self.h = None
 
     def init_hidden(self, batch_size, height, width):
-        h = [torch.zeros(batch_size, self.hidden_channels, height, width).to(next(self.parameters()).device)
+        # same device and precision as the weights (the network may run in half precision)
+        p = next(self.parameters())
+        h = [torch.zeros(batch_size, self.hidden_channels, height, width, device=p.device, dtype=p.dtype)
              for _ in range(self.num_layers)]
-        c = [torch.zeros(batch_size, self.hidden_channels, height, width).to(next(self.parameters()).device)
+        c = [torch.zeros(batch_size, self.hidden_channels, height, width, device=p.device, dtype=p.dtype)
              for _ in range(self.num_layers)]
         return h, c
 

@@ -1,6 +1,8 @@
 import argparse
 import os
 
+from VITON.options import add_pipeline_arguments
+
 class BaseOptions():
     def __init__(self):
         self.parser = argparse.ArgumentParser()
@@ -10,7 +12,9 @@ class BaseOptions():
         self.parser.add_argument('--input_video', type=str, help='the path of input video file')
         self.parser.add_argument('--garment_name', type=str, default='example_garment', help='id of the target garment')
         self.parser.add_argument('--ckpt_dir', type=str, default='./checkpoints/', help='folder holding the garment checkpoints')
+        self.parser.add_argument('--output', type=str, default='./output.mp4', help='where to write the result')
         self.parser.add_argument('--latency_csv', type=str, default=None, help='write per-frame stage timings to this CSV')
+        add_pipeline_arguments(self.parser)
         self.initialized=True
 
     def parse(self):
@@ -18,5 +22,3 @@ class BaseOptions():
             self.initialize()
         self.opt = self.parser.parse_args()
         return self.opt
-
-

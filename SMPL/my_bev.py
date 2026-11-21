@@ -5,7 +5,27 @@ from bev.post_parser import denormalize_cam_params_to_trans, suppressing_redunda
 class MyBEV(BEV):
     def __init__(self, settings, fix_body=False):
         super(MyBEV, self).__init__(settings)
-        self.fix_body = fix_body
+        self.fix_body = fix_body  # may be changed between frames (garments differ in the shape they were trained on)
+        self.pad_info = None      # padding of the last image, needed to project a rebuilt mesh onto it
+
+    def apply_fix_body(self, betas):
+        if self.fix_body == 'all':
+            betas[:] = 0  # every shape parameter (paper: beta = 0)
+        elif self.fix_body:
+            # what the per-garment training data used (DatasetGeneration): shape 0-3 and the age/kid blend 10
+            betas[:, 10] = 0
+            betas[:, 0:4] = 0
+        return betas
+
+    @torch.no_grad()
+    def rebuild(self, outputs):
+        """Mesh, joints and image projection for (smoothed) smpl_betas / smpl_thetas / cam of the people in outputs."""
+        betas = self.apply_fix_body(outputs['smpl_betas'].clone())
+        verts, joints, face = self.smpl_parser(betas, outputs['smpl_thetas'])
+        rebuilt = {'smpl_betas': betas, 'verts': verts, 'joints': joints, 'smpl_face': face}
+        rebuilt.update(body_mesh_projection2image(joints, outputs['cam'], vertices=verts,
+                                                  input2org_offsets=self.pad_info))
+        return rebuilt
 
     @torch.no_grad()  # inference only: no autograd bookkeeping
     def forward(self, image, signal_ID=0, **kwargs):
@@ -24,6 +44,7 @@ class MyBEV(BEV):
     def process_normal_image(self, image, signal_ID):
         outputs, image_pad_info = self.single_image_forward(image)
         meta_data = {'input2org_offsets': image_pad_info}
+        self.pad_info = image_pad_info
 
         if outputs is None:
             return None
@@ -35,12 +56,7 @@ class MyBEV(BEV):
             outputs.update({'cam_trans': denormalize_cam_params_to_trans(outputs['cam'])})
 
         #print(outputs['smpl_betas'].dtype, outputs['smpl_betas'].shape)#torch.Size([1, 11]
-        if self.fix_body == 'all':
-            outputs['smpl_betas'][:] = 0  # every shape parameter (paper: beta = 0)
-        elif self.fix_body:
-            # what the per-garment training data used (DatasetGeneration): shape 0-3 and the age/kid blend 10
-            outputs['smpl_betas'][:,10]=0
-            outputs['smpl_betas'][:, 0:4] = 0
+        self.apply_fix_body(outputs['smpl_betas'])
         if self.settings.calc_smpl:
             verts, joints, face = self.smpl_parser(outputs['smpl_betas'], outputs['smpl_thetas'])
             outputs.update({'verts': verts, 'joints': joints, 'smpl_face': face})

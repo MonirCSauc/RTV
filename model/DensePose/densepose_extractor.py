@@ -70,6 +70,51 @@ def get_palette(num_cls):
             lab >>= 3
     return palette
 
+class BoxFilter:
+    """Steadies the person box between frames.
+
+    DensePose resamples its 112x112 output to the box and the result is pasted at whole pixels, so a box that
+    trembles by a fraction of a pixel shifts or rescales the whole body map by a pixel, and with it the garment
+    outline. The box sides are smoothed with a One-Euro filter and then snapped to whole image pixels with
+    hysteresis: a side only moves once the smoothed value is more than `hysteresis` pixels away from it. For a
+    person standing still the box is then exactly constant. Only the best-scoring box is kept.
+    """
+
+    def __init__(self, min_cutoff=1.0, beta=30.0, hysteresis=0.75):
+        from util.one_euro import OneEuroFilter
+        self.filter = OneEuroFilter(min_cutoff, beta)
+        self.hysteresis = hysteresis
+        self.reset()
+
+    def reset(self):
+        self.filter.reset()
+        self.snapped = None
+        self.t = None
+        self.dt = 0.0
+
+    def set_time(self, t):
+        self.dt = 0.0 if self.t is None else t - self.t
+        if self.dt > 1.0:
+            self.reset()
+        self.t = t
+
+    def __call__(self, instances, scale):
+        # scale: network-input pixels per image pixel (the predictor resizes the image)
+        best = instances[[int(instances.scores.argmax())]]
+        box = best.pred_boxes.tensor
+        raw = box[0].float().cpu().numpy() / scale  # in image pixels
+        # speed in box heights per second, so the filter behaves the same for near and far people
+        height = float(raw[3] - raw[1]) + 1e-6
+        smooth = self.filter(raw / height, self.dt) * height
+        if self.snapped is None:
+            self.snapped = np.round(smooth)
+        else:
+            move = np.abs(smooth - self.snapped) > self.hysteresis
+            self.snapped[move] = np.round(smooth[move])
+        best.pred_boxes.tensor = torch.as_tensor(self.snapped[None] * scale, dtype=box.dtype, device=box.device)
+        return best
+
+
 class DensePoseExtractor(DumpAction):
     def __init__(self, opts=None):
         self.parser = argparse.ArgumentParser()
@@ -269,6 +314,94 @@ class DensePoseExtractor(DumpAction):
         #print(labels.max())
 
         return IUV
+
+    # proposal boxes around the body box BEV gives, as (width scale, height scale): the body box itself and a few
+    # looser/tighter ones, since clothes and hair reach beyond the bare body mesh
+    BOX_VARIANTS = ((1.0, 1.0), (1.15, 1.05), (0.9, 0.95), (1.3, 1.1), (1.0, 1.1))
+
+    def backbone_features(self, img, fp16=True):
+        """First half of get_IUV_in_box: image features, which do not depend on where the person is. It can
+        therefore run in another thread while BEV locates the person. img: BGR uint8 (H, W, 3)."""
+        from detectron2.structures import ImageList
+        model = self.predictor.model
+        tf = self.predictor.aug.get_transform(img)  # the resize the predictor would apply (shortest edge 800)
+        with torch.no_grad(), torch.autocast('cuda', dtype=torch.float16, enabled=fp16 and torch.cuda.is_available()):
+            x = torch.from_numpy(img).to(model.device).permute(2, 0, 1)[None].float()
+            if self.predictor.input_format == 'RGB':
+                x = x[:, [2, 1, 0]]
+            x = F.interpolate(x, size=(tf.new_h, tf.new_w), mode='bilinear', align_corners=False)
+            x = (x - model.pixel_mean) / model.pixel_std
+            divisor = max(model.backbone.size_divisibility, 1)
+            x = F.pad(x, (0, (-tf.new_w) % divisor, 0, (-tf.new_h) % divisor))
+            images = ImageList(x, [(tf.new_h, tf.new_w)])
+            features = model.backbone(images.tensor)
+        return images, features, tf
+
+    def get_IUV_in_box(self, img, body_box, target_joints=None, as_tensor=False, fp16=True, box_filter=None,
+                       features=None):
+        """DensePose for the person inside `body_box`, without searching the image for people.
+
+        get_IUV runs the whole detector: backbone, region proposal network (about a quarter of the time), box
+        scoring of up to 1000 proposals, then the DensePose head for every detected person. Here BEV has already
+        located the customer, so its body box (plus a few variants) replaces the proposals. The detector's second
+        stage still scores and refines the box, so the result is very close to get_IUV's for that person, in about
+        half the time, and no other person can be returned. img: BGR uint8 (H, W, 3); body_box: (x0, y0, x1, y1)
+        in image pixels. box_filter: optional BoxFilter that steadies the refined box over time. features: the
+        result of backbone_features(img), if it was computed ahead.
+        Returns the IUV map like get_IUV, or None if the box does not hold a person.
+        """
+        from detectron2.structures import Boxes, Instances
+        from detectron2.modeling.postprocessing import detector_postprocess
+        model = self.predictor.model
+        height, width = img.shape[:2]
+        self.last_selection = {'n_people': 0, 'joint_fraction': float('nan')}
+        images, features, tf = features if features is not None else self.backbone_features(img, fp16)
+        with torch.no_grad(), torch.autocast('cuda', dtype=torch.float16, enabled=fp16 and torch.cuda.is_available()):
+            x0, y0, x1, y1 = [float(v) for v in body_box]
+            cx, cy, w, h = (x0 + x1) / 2, (y0 + y1) / 2, max(x1 - x0, 2.0), max(y1 - y0, 2.0)
+            boxes = np.array([[cx - w * sw / 2, cy - h * sh / 2, cx + w * sw / 2, cy + h * sh / 2]
+                              for sw, sh in self.BOX_VARIANTS], np.float32)
+            boxes = tf.apply_box(boxes)
+            boxes[:, [0, 2]] = boxes[:, [0, 2]].clip(0, tf.new_w)
+            boxes[:, [1, 3]] = boxes[:, [1, 3]].clip(0, tf.new_h)
+            proposals = Instances(images.image_sizes[0])
+            proposals.proposal_boxes = Boxes(torch.as_tensor(boxes, device=model.device))
+            proposals.objectness_logits = torch.ones(len(boxes), device=model.device)
+            # second stage in two steps (what roi_heads does at inference), so the box can be steadied in between
+            instances = model.roi_heads._forward_box(features, [proposals])
+            if box_filter is not None and len(instances[0]) > 0:
+                instances[0] = box_filter(instances[0], tf.new_h / height)
+            instances = model.roi_heads.forward_with_given_boxes(features, instances)
+            instances = detector_postprocess(instances[0], height, width)
+        self.last_selection['n_people'] = len(instances)
+        if len(instances) == 0:
+            return None
+        pred_boxes = instances.pred_boxes.tensor.float()
+        if target_joints is None:
+            index = int(instances.scores.argmax())
+        else:
+            index, fraction = self.select_person(pred_boxes.cpu().numpy(), target_joints)
+            self.last_selection['joint_fraction'] = fraction
+            if index is None:
+                return None
+        # the same resampling as DensePoseResultExtractor, for this one person and without the confidences
+        out = instances.pred_densepose[index]
+        bx, by, bx1, by1 = pred_boxes[index].tolist()
+        w, h = max(int(bx1 - bx), 1), max(int(by1 - by), 1)
+        x_min, y_min = int(round(bx)), int(round(by))
+        up = lambda t: F.interpolate(t.float(), (h, w), mode='bilinear', align_corners=False)
+        labels = up(out.fine_segm).argmax(1) * (up(out.coarse_segm).argmax(1) > 0).long()  # (1, h, w)
+        u = torch.gather(up(out.u), 1, labels[:, None])[0, 0]
+        v = torch.gather(up(out.v), 1, labels[:, None])[0, 0]
+        found = (labels[0] > 0).float()
+        box_iuv = torch.stack([labels[0].float(), u * found * 255.0, v * found * 255.0], -1)
+        # paste, clipped to the image
+        h, w = min(h, height - y_min), min(w, width - x_min)
+        iuv = torch.zeros(height, width, 3, device=box_iuv.device)
+        if h > 0 and w > 0:
+            iuv[y_min:y_min + h, x_min:x_min + w] = box_iuv[:h, :w]
+        iuv = iuv.to(torch.uint8)  # same truncation as numpy's astype
+        return iuv if as_tensor else iuv.cpu().numpy()
 
     def get_max_index(self, boxes):
         areas=[]

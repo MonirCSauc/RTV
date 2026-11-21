@@ -13,6 +13,8 @@ from bev import BEV
 from SMPL.my_bev import MyBEV
 from scipy.spatial.transform import Rotation as R
 from util.image_process import blur_image
+from SMPL.body_tracker import CustomerTracker, NearestPerson, BodySmoother, select_person
+import time
 
 
 
@@ -49,9 +51,14 @@ class MyROMP(ROMP):
 
 # https://github.com/Arthur151/ROMP/blob/master/simple_romp/README.md
 class SMPL_Regressor:
-    def __init__(self,use_bev=True, fix_body=False):
-
+    def __init__(self,use_bev=True, fix_body=False, track=False, smooth=False, zone=(0.0, 1.0)):
+        # track: stay with one customer instead of taking the nearest person anew in every frame
+        # smooth: filter that person's pose, position and shape over time (see SMPL/body_tracker.py)
+        # Both are off by default, so dataset generation and other callers behave as before.
         self.regressor_model = self.create_romp_model() if not use_bev else self.create_bev_model(fix_body)
+        self.use_bev = use_bev
+        self.tracker = CustomerTracker(zone=zone) if (track and use_bev) else NearestPerson()
+        self.smoother = BodySmoother() if (smooth and use_bev) else None
         self.smpl = SMPLModel()
         #self.smpl.beta[0]+=1.2
         self.smpl.beta[1]+=1.2#todo:???
@@ -163,9 +170,41 @@ class SMPL_Regressor:
         return verts_tran
 
 
-    def forward(self, img, roi=False,size=1.2,roi_img_size=512):
+    def set_fix_body(self, fix_body):
+        if self.use_bev:
+            self.regressor_model.fix_body = fix_body
+
+    def reset_person(self):
+        self.tracker.reset()
+        if self.smoother is not None:
+            self.smoother.reset()
+
+    @property
+    def new_person(self):
+        # True for the frame in which the tracker took a (new) customer
+        return self.tracker.new_person
+
+    def forward(self, img, roi=False,size=1.2,roi_img_size=512, t=None):
         # ['cam', 'global_orient', 'body_pose', 'smpl_betas', 'smpl_thetas', 'center_preds', 'center_confs', 'cam_trans', 'verts', 'joints', 'pj2d_org']
+        # t: time of this frame in seconds (defaults to the clock); the smoothing filters need the frame spacing
         outputs = self.regressor_model.forward(img)
+        self.n_people_seen = 0
+        if self.use_bev:
+            t = time.perf_counter() if t is None else t
+            if outputs is None:
+                self.tracker.miss(t)
+            else:
+                self.n_people_seen = int(outputs['cam_trans'].shape[0])
+                index = self.tracker(outputs, img.shape, t)
+                if index is None:
+                    outputs = None  # people are visible, but not the customer
+                else:
+                    # from here on the dict holds the customer only, so "nearest person" below is the customer
+                    outputs = select_person(outputs, index)
+                    if self.smoother is not None:
+                        if self.tracker.new_person:
+                            self.smoother.reset()
+                        outputs = self.smoother(outputs, t, self.regressor_model)
         #outputs = self.romp_model.smpl_parser.forward(outputs)
         #print(outputs['pj2d_org'].shape)
         #print(outputs['joints'].shape)
@@ -196,6 +235,15 @@ class SMPL_Regressor:
     @staticmethod
     def n_people(outputs):
         return int(outputs['cam_trans'].shape[0])
+
+    @staticmethod
+    def body_box(outputs, height, width):
+        # image box (x0, y0, x1, y1) around the chosen person's projected body mesh, clipped to the image
+        depth_order = torch.sort(outputs['cam_trans'][:, 2].cpu(), descending=False).indices.numpy()
+        pts = outputs['verts_camed_org'][depth_order][0][:, :2]
+        x0, y0 = pts.min(0).values.tolist()
+        x1, y1 = pts.max(0).values.tolist()
+        return np.array([max(x0, 0), max(y0, 0), min(x1, width - 1), min(y1, height - 1)], np.float32)
 
     def get_face_region(self, outputs):
         cam_trans = outputs['cam_trans']

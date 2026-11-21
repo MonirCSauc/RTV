@@ -58,21 +58,41 @@ On Windows the body renderer uses a hidden GLFW window for OpenGL (`pip install 
 Useful options:
 - `--camera <index or URL>`: pick the camera, e.g. `--camera 2` or a phone stream such as `--camera http://<phone-ip>:4747/video` (DroidCam).
 - `--rotate {cw,ccw,180,none}`: rotation applied to camera frames (default `cw`, for a camera mounted sideways in portrait).
-- `--garments <names>` and `--ckpt_dir <dir>`: comma-separated checkpoint names to offer, and the folder holding them (default `./rtv_ckpts`).
+- `--garments <names>` and `--ckpt_dir <dir>`: comma-separated checkpoint names to offer, and the folder holding them (default `./rtv_ckpts`). Upper-body garments (`*_vmsdp2ta`) and full-body garments (`*_seq_vmssdp2ta_576`) can be mixed; garments whose weights are missing are left out with a message.
+- `--select <n>`: wear garment number `n` of the list at start. Keys `1`-`9` pick a garment, `0` none.
+- `--camera <video file>` plays a recorded video in real time and repeats it, to test without a camera (add `--rotate none` for a portrait video).
 - `--latency_csv <file>`: record each stage's time on the GPU and the delay from camera capture to display, one CSV row per frame, with a p50/p95 summary printed every 100 frames and on exit. Timing synchronises the GPU after each stage, which costs a little speed; leave it off when measuring top fps.
 - `--latency_marker`: draw the frame number and capture time into the output, so a high-speed phone video of the mirror can measure glass-to-glass delay.
 
 - `--debug`: show, next to the output, the camera input, the rendered 3D body (VM), the DensePose body map (SDP), the garment colour the network produced, and its mask (square-root scaled so faint values show) with the hands and face kept in front of the garment in red. It also warns if any stage draws into the camera frame. Press `S` to save the displayed frame and the full-frame arrays (`.png` + `.npz`) to `./debug_frames/`.
 
-- `--dp_score <0..1>`: minimum DensePose detection score (default 0.5). DensePose now always describes the same person as the 3D body (BEV): its detection is chosen by BEV's 2D joints, and a frame where they disagree is skipped instead of mixing two people. The latency CSV records per frame how many people each model saw, how well they agreed (`dp_joint_fraction`), and the frame `outcome` (`ok`, `no_person`, `dp_mismatch`, `dp_no_person`, `no_garment`).
+- `--dp_score <0..1>`: minimum DensePose detection score (default 0.5). DensePose always describes the same person as the 3D body (BEV). The latency CSV records per frame how many people each model saw, how well they agreed (`dp_joint_fraction`), and the frame `outcome` (`ok`, `no_person`, `dp_mismatch`, `dp_no_person`, `no_garment`).
+- `--track {on,off}` (default on): the garment stays on one customer. A new customer is the nearest person inside `--zone`; after that the same person is followed by position and apparent size, so someone walking by, even in front, does not take the garment. If the customer is hidden for 1.5 s the mirror takes the next person. `off` takes the nearest person in every frame (original).
+- `--zone L,R` (default `0,1`): fractions of the image width in which a new customer is accepted, e.g. `0.2,0.8` ignores people at the sides.
+- `--smooth {on,off}` (default on): steadies the body estimate (pose, position, shape), the crop and the DensePose box over time with filters that smooth strongly at rest and hardly at all in fast motion. `off` is the original behaviour.
+- `--temporal <0..1>` (default 0.5): flicker filter on the output of the upper-body (per-frame) networks; 0 turns it off. The full-body networks have their own memory and are not filtered.
+- `--dp_mode {box,full}` (default box): `box` runs DensePose only inside the body box BEV found (no person search; about 15 ms instead of 40 ms); `full` runs the whole detector (original).
+- `--fp16 {on,off}` (default on): half precision for DensePose and the garment network.
+- `--cover_worn {on,off}` (default on): stops the customer's own top from showing around the new garment. The garment grows over adjacent pixels that have the colour of the customer's top (strips on the shoulders, sleeve ends, the collar in the neck opening), using its own colour next to them; small holes in it are closed; and the head and hand masks no longer keep the customer's collar or the cloth around a fist in front of the garment. Nothing is painted on the customer and no training is involved. The grown part carries the garment's colour but not its texture, so it reaches at most 14% of the garment's height; a much larger or longer top still shows beyond that. It does nothing when the top and the customer's skin have about the same colour.
+- `--original`: all of the above as in the original pipeline, for comparisons.
 
-- `--body_shape {estimated,train,zero}`: body shape of the rendered 3D body. `estimated` (default) follows the customer's own shape; `train` (average shape, as in the training data) and `zero` are there for experiments and can make the garment narrower or wider than the person.
+- `--body_shape {estimated,train,zero}`: body shape of the rendered 3D body. `estimated` (default for upper-body garments) follows the customer's own shape; full-body garments default to `train`; `train` (average shape, as in the training data) and `zero` are there for experiments and can make the garment narrower or wider than the person.
 - `--keep_in_front {hands_head,hands,none}`: body parts drawn in front of the garment (default hands and head). Seen from behind, DensePose's head is the back of the head and hair, which can cut into a garment's back collar; `hands` keeps only the hands in front.
 - `--blend {soft,original}`: garment edges. `soft` (default) blends anti-aliased edges without a dark outline; `original` uses the repository's original hard 50% mask. `--blend original --keep_in_front none` draws exactly like the original code.
 - `--alpha_gate PX` (default 30): keeps the garment on the body. A garment network shown a pose it never saw in training (e.g. `lab_03` with the left arm raised overhead) can spread alpha over the whole crop, which shows as a dark, blocky ghost on the wall. The gate keeps only confident garment regions that touch the 3D body render, at most PX pixels (in the 512 crop) beyond the body. On the poses the networks handle it removes nothing visible. In `--debug`, removed alpha shows in blue. `0` turns it off.
 - `--keep_garments_on_gpu`: keep every garment network on the GPU (~0.8 GB each) so switching is instant. Only with plenty of GPU memory: on Windows, running short does not fail but silently slows every frame.
 
 - `--lock_camera`: let the camera adjust for about a second, then freeze its exposure and white balance, so changing store light or people walking by do not make the image (and the body estimates) flicker. Works for USB and virtual cameras whose driver supports it (the result is printed); for a phone stream, lock exposure in the phone app.
+
+`python demo.py` is the same program with the full-body garments first and the coat worn at start; both programs take the same options and can show any garment (e.g. `python demo.py --garments lab_03_vmsdp2ta`, `python rtl_demo.py --select 7`).
+
+### Measuring speed and stability
+```
+python tools/benchmark_video.py --video <video> --garment lab_03_vmsdp2ta            # new pipeline
+python tools/benchmark_video.py --video <video> --garment lab_03_vmsdp2ta --original # original pipeline
+python tools/benchmark_video.py --video <video> --garment lab_03_vmsdp2ta --still 0  # jitter test on frame 0
+```
+It prints per-stage times, the frame rate, the warping error (flicker beyond the person's real motion) and, with `--still`, the jitter of the garment for a person standing perfectly still (one frame repeated with fresh camera noise). `--out result.mp4` saves the result.
 
 At start-up the demo checks that PyTorch can see a CUDA GPU and prints where BEV, DensePose and each garment network run (they should all show `cuda:0`).
 
