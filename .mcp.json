@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "mraia": {
+      "type": "stdio",
+      "command": "python",
+      "args": ["${CLAUDE_PROJECT_DIR:-.}/mraia_mcp/server.py"]
+    }
+  }
+}
